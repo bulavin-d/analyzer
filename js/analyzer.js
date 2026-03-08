@@ -1,30 +1,30 @@
 /* ============================================================
-   BULAVIN AI ANALYZER v1.1 PRO — Analyzer Module
-   Production-grade: silence strip, processing fingerprint,
-   smart resonances, weighted scoring, contextual advice
+   BULAVIN AI ANALYZER v2.0 — Analyzer Module
+   Track analysis, comparison, scoring — production-grade
    ============================================================ */
 
 const BANDS = [
     { name: 'Sub', lo: 20, hi: 60, weight: 0.2, desc: 'Зона бита — голос тут не живёт' },
-    { name: 'Bass', lo: 60, hi: 120, weight: 0.4, desc: 'Фундамент голоса, proximity effect от микрофона' },
+    { name: 'Bass', lo: 60, hi: 120, weight: 0.4, desc: 'Proximity effect от микрофона' },
     { name: 'Low-Mid', lo: 120, hi: 250, weight: 1.0, desc: 'Теплота и тело голоса' },
     { name: 'Mid', lo: 250, hi: 500, weight: 1.0, desc: 'Основное мясо голоса' },
     { name: 'Upper-Mid', lo: 500, hi: 1000, weight: 1.0, desc: 'Разборчивость речи' },
-    { name: 'Presence', lo: 1000, hi: 3000, weight: 1.0, desc: 'Атака согласных — голос выходит вперёд' },
-    { name: 'Clarity', lo: 3000, hi: 6000, weight: 0.9, desc: 'Чёткость, зона де-эссера' },
-    { name: 'Brilliance', lo: 6000, hi: 10000, weight: 0.5, desc: 'Воздух и свечение верхов' },
+    { name: 'Presence', lo: 1000, hi: 3000, weight: 1.0, desc: 'Атака согласных' },
+    { name: 'Clarity', lo: 3000, hi: 6000, weight: 0.9, desc: 'Зона де-эссера' },
+    { name: 'Brilliance', lo: 6000, hi: 10000, weight: 0.5, desc: 'Воздух верхов' },
     { name: 'Air', lo: 10000, hi: 20000, weight: 0.2, desc: 'Ультра-верх' },
 ];
 
-// Resonance zone classifier
+const SCORE_BANDS = ['Low-Mid', 'Mid', 'Upper-Mid', 'Presence', 'Clarity'];
+
 const RES_ZONES = [
-    { lo: 80, hi: 200, zone: 'lowBody', label: '🎤 Proximity / Бас микрофона', tip: 'Если бубнит — подрежь. Это proximity effect от микрофона.' },
-    { lo: 200, hi: 400, zone: 'box', label: '📦 Бубнение / "Коробка"', tip: 'Типичный коробочный звук. Тесная комната или плохая акустика.' },
-    { lo: 400, hi: 800, zone: 'nasal', label: '👃 Назальность', tip: 'Гнусавость — обычно природа голоса. Подрезается узким EQ.' },
-    { lo: 800, hi: 1500, zone: 'honk', label: '📢 Гудение / Honk', tip: 'Телефонный звук. Часто от дешёвого микры или маленькой комнаты.' },
-    { lo: 1500, hi: 3000, zone: 'presence', label: '🔊 Присутствие', tip: 'Голос торчит вперёд. Если режет уши — убавь.' },
-    { lo: 3000, hi: 5500, zone: 'sibilance', label: '🐍 Сибилянты / "ССС"', tip: 'Свистящие звуки. Лечится де-эссером на этой частоте.' },
-    { lo: 5500, hi: 8000, zone: 'harshness', label: '⚡ Жёсткость / Harshness', tip: 'Ядовитые верхние. Слишком яркий микрофон или буст в EQ.' },
+    { lo: 80, hi: 200, zone: 'lowBody', label: '🎤 Proximity / Бас микро', tip: 'Proximity effect. Подрезай если бубнит.' },
+    { lo: 200, hi: 400, zone: 'box', label: '📦 Бубнение / Коробка', tip: 'Коробочный звук от комнаты.' },
+    { lo: 400, hi: 800, zone: 'nasal', label: '👃 Назальность', tip: 'Гнусавость голоса — подрезается узким EQ.' },
+    { lo: 800, hi: 1500, zone: 'honk', label: '📢 Гудение', tip: 'Телефонный звук. Дешёвый микр или комната.' },
+    { lo: 1500, hi: 3000, zone: 'presence', label: '🔊 Присутствие', tip: 'Голос торчит вперёд. Убавь если режет.' },
+    { lo: 3000, hi: 5500, zone: 'sibilance', label: '🐍 Сибилянты', tip: 'Свистящие ССС. Лечится де-эссером.' },
+    { lo: 5500, hi: 8000, zone: 'harshness', label: '⚡ Жёсткость', tip: 'Ядовитые верхние. Яркий микр или буст EQ.' },
 ];
 
 const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
@@ -36,31 +36,47 @@ function freqToNote(freq) {
 }
 
 function classifyResZone(freq) {
-    for (const z of RES_ZONES) {
-        if (freq >= z.lo && freq < z.hi) return z;
-    }
-    return { zone: 'unknown', label: '🔔 Резонанс', tip: 'Неклассифицированный пик.' };
+    for (const z of RES_ZONES) { if (freq >= z.lo && freq < z.hi) return z; }
+    return { zone: 'unknown', label: '🔔 Резонанс', tip: '' };
 }
 
 /* ============================================================
-   PROCESSING FINGERPRINT
-   Classifies a track as dry / lightly processed / heavily processed
+   PROCESSING FINGERPRINT (FIX 1.3: temporal decay analysis)
    ============================================================ */
-function fingerprint(crest, dynRange, subEnergy, airEnergy, bandEnergies) {
-    // Sub energy relative to mid = reverb indicator
-    const midEnergy = bandEnergies[3]; // Mid 250-500
-    const subRatio = subEnergy - midEnergy; // dB difference
-    const hasReverb = subRatio > -10 && crest > 16 && dynRange > 14;
-    const hasSaturation = airEnergy > -45; // hot Air band = likely saturation/exciter
-    const hasCompression = crest < 14 && dynRange < 10;
-    const isDry = crest < 17 && dynRange < 13 && subRatio < -15;
+function fingerprint(crest, dynRange, bandEnergies, data, sr) {
+    // Reverb detection via tail/body energy ratio
+    const frameSize = Math.floor(0.05 * sr);
+    const hop = Math.floor(frameSize / 2);
+    const tailBodyRatios = [];
+
+    for (let i = 0; i + frameSize * 4 <= data.length; i += hop * 4) {
+        let bodyE = 0;
+        for (let j = 0; j < frameSize; j++) bodyE += data[i + j] ** 2;
+        let tailE = 0;
+        const tailStart = i + frameSize * 3;
+        if (tailStart + frameSize <= data.length) {
+            for (let j = 0; j < frameSize; j++) tailE += data[tailStart + j] ** 2;
+        }
+        if (bodyE > 1e-8) tailBodyRatios.push(tailE / bodyE);
+    }
+
+    const medianTailRatio = tailBodyRatios.length > 0
+        ? tailBodyRatios.sort((a, b) => a - b)[Math.floor(tailBodyRatios.length / 2)] : 0;
+
+    const hasReverb = medianTailRatio > 0.15;
+    const reverbAmount = Math.min(1, medianTailRatio / 0.4);
+    const hasCompression = crest < 13 && dynRange < 9;
+
+    // Saturation: Air relative to Presence (normalized)
+    const airPresenceRatio = bandEnergies[8] - bandEnergies[5];
+    const hasSaturation = airPresenceRatio > -20;
 
     let level = 'dry';
     if (hasReverb) level = 'wet';
     else if (hasCompression && hasSaturation) level = 'processed';
     else if (hasCompression || hasSaturation) level = 'lightly';
 
-    return { isDry, hasReverb, hasCompression, hasSaturation, level };
+    return { isDry: level === 'dry', hasReverb, reverbAmount, hasCompression, hasSaturation, level };
 }
 
 /* ============================================================
@@ -69,17 +85,17 @@ function fingerprint(crest, dynRange, subEnergy, airEnergy, bandEnergies) {
 function analyzeTrack(buf) {
     const sr = buf.sampleRate;
     const rawData = getSamples(buf);
-
-    // 1. STRIP SILENCE — only analyze real audio
     const data = stripSilence(rawData, sr);
 
-    // 2. Basic stats on clean audio
+    // Basic stats
     const peakVal = peak(data);
     const peakDb = dB(peakVal);
     const rmsVal = rms(data);
     const rmsDb = dB(rmsVal);
+    // FIX 1.1: power-domain RMS for PSD normalization
+    const rmsPowerDb = 10 * Math.log10(Math.max(rmsVal * rmsVal, 1e-20));
 
-    // 3. Frame-based dynamics
+    // Frame-based dynamics
     const frameSize = Math.floor(0.03 * sr);
     const hop = Math.floor(frameSize / 2);
     const frames = [];
@@ -90,7 +106,7 @@ function analyzeTrack(buf) {
     }
     const framesDb = frames.map(f => dB(f));
 
-    // Adaptive activity threshold (percentile-based)
+    // Adaptive threshold (percentile-based)
     const sortedFrames = [...framesDb].sort((a, b) => a - b);
     const p20 = sortedFrames[Math.floor(sortedFrames.length * 0.2)];
     const p80 = sortedFrames[Math.floor(sortedFrames.length * 0.8)];
@@ -101,45 +117,52 @@ function analyzeTrack(buf) {
     const activeRmsDb = activeFrames.length > 0 ? dB(rms(new Float32Array(activeFrames))) : rmsDb;
     const crest = peakDb - activeRmsDb;
 
+    // Percentile dynamic range (P5-P95)
     const activeDb = framesDb.filter(f => f > thresh);
-    // Percentile-based dynamic range (P5-P95, robust to outliers)
     const sortedActive = [...activeDb].sort((a, b) => a - b);
     let dynRange = 0;
     if (sortedActive.length > 4) {
-        const p5 = sortedActive[Math.floor(sortedActive.length * 0.05)];
-        const p95 = sortedActive[Math.floor(sortedActive.length * 0.95)];
-        dynRange = p95 - p5;
+        dynRange = sortedActive[Math.floor(sortedActive.length * 0.95)] - sortedActive[Math.floor(sortedActive.length * 0.05)];
     }
 
-    // 4. Spectrum (Welch PSD) on ACTIVE audio only
-    const { freqs, psd } = welchPSD(data, sr, 4096, 0.5);
+    // Welch PSD
+    const { freqs, psd, nfft } = welchPSD(data, sr, 4096, 0.5);
     const psdDb = Array.from(psd).map(v => dB10(v));
-    const psdNorm = psdDb.map(v => v - rmsDb);
+    const psdNorm = psdDb.map(v => v - rmsPowerDb); // FIX 1.1
 
+    // Cepstral spectral envelope
+    const envelope = spectralEnvelope(psd, sr, nfft, 4);
+    const envelopeDb = Array.from(envelope).map(v => dB10(v));
+    const envMeanDb = envelopeDb.reduce((a, b) => a + b, 0) / envelopeDb.length;
+    const envelopeNorm = envelopeDb.map(v => v - envMeanDb);
+
+    // Downsample for charts
     const specFreqs = [], specDb = [];
     for (let i = 0; i < freqs.length; i += 2) {
         if (freqs[i] >= 20 && freqs[i] <= 20000) {
-            specFreqs.push(freqs[i]);
-            specDb.push(psdNorm[i]);
+            specFreqs.push(freqs[i]); specDb.push(psdNorm[i]);
         }
     }
 
-    // 5. Band energies
+    // Band energies (FIX 1.1: use rmsPowerDb)
     const bands = BANDS.map(b => {
         let sum = 0, count = 0;
         for (let i = 0; i < freqs.length; i++) {
             if (freqs[i] >= b.lo && freqs[i] <= b.hi) { sum += psd[i]; count++; }
         }
-        const e = count > 0 ? dB10(sum / count) - rmsDb : -80;
+        const e = count > 0 ? dB10(sum / count) - rmsPowerDb : -80;
         return { ...b, energy: e };
     });
 
-    // 6. SMART RESONANCES — group peaks, classify zones, calibrate EQ
-    const smoothSize = 25;
+    // Smart resonances (FIX 1.7: logarithmic smoothing)
+    const binBw = sr / nfft;
     const smooth = new Float64Array(psdDb.length);
     for (let i = 0; i < psdDb.length; i++) {
-        const lo = Math.max(0, i - smoothSize);
-        const hi = Math.min(psdDb.length - 1, i + smoothSize);
+        const centerFreq = freqs[i] || 20;
+        const halfBw = centerFreq * 0.2;
+        const halfBins = Math.max(2, Math.round(halfBw / binBw));
+        const lo = Math.max(0, i - halfBins);
+        const hi = Math.min(psdDb.length - 1, i + halfBins);
         let s = 0;
         for (let j = lo; j <= hi; j++) s += psdDb[j];
         smooth[i] = s / (hi - lo + 1);
@@ -159,48 +182,41 @@ function analyzeTrack(buf) {
     }
     rawResonances.sort((a, b) => b.excess - a.excess);
 
-    // Group nearby resonances (within 80 Hz)
+    // Group nearby (FIX 1.5: calibrated EQ cuts)
     const resonances = [];
     const used = new Set();
     for (const r of rawResonances) {
         if (used.has(r.bin)) continue;
-        // Find neighbors
         let bestFreq = r.freq, bestExcess = r.excess;
         for (const other of rawResonances) {
-            if (Math.abs(other.freq - r.freq) < 80 && other.excess > bestExcess) {
-                bestFreq = other.freq; bestExcess = other.excess;
+            if (Math.abs(other.freq - r.freq) < 80) {
+                if (other.excess > bestExcess) { bestFreq = other.freq; bestExcess = other.excess; }
+                used.add(other.bin);
             }
-            if (Math.abs(other.freq - r.freq) < 80) used.add(other.bin);
         }
         used.add(r.bin);
-
         const zone = classifyResZone(bestFreq);
-        // Calibrated EQ: cut proportional to excess, Q tighter for higher excess
-        const cutDb = Math.min(bestExcess * 0.35, 4.0);
-        const Q = bestExcess > 8 ? 6.0 : bestExcess > 5 ? 4.0 : 2.5;
+        const cutDb = bestExcess > 10 ? Math.min(bestExcess * 0.55, 9.0)
+            : bestExcess > 5 ? Math.min(bestExcess * 0.45, 6.0)
+                : Math.min(bestExcess * 0.4, 4.0);
+        const Q = bestExcess > 8 ? 5.0 : bestExcess > 5 ? 3.5 : 2.0;
         const priority = bestExcess > 8 ? 1 : bestExcess > 5 ? 2 : 3;
 
         resonances.push({
-            freq: Math.round(bestFreq),
-            excess: bestExcess,
-            zone: zone.zone,
-            label: zone.label,
-            tip: zone.tip,
-            cutDb: +cutDb.toFixed(1),
-            Q: +Q.toFixed(1),
-            priority
+            freq: Math.round(bestFreq), excess: bestExcess,
+            zone: zone.zone, label: zone.label, tip: zone.tip,
+            cutDb: +cutDb.toFixed(1), Q: +Q.toFixed(1), priority
         });
     }
 
-    // 7. Envelope (downsampled)
+    // Envelope chart
     const envStep = Math.max(Math.floor(framesDb.length / 400), 1);
-    const envTime = [], envDb = [];
+    const envTime = [], envDbArr = [];
     for (let i = 0; i < framesDb.length; i += envStep) {
-        envTime.push(i * hop / sr);
-        envDb.push(framesDb[i]);
+        envTime.push(i * hop / sr); envDbArr.push(framesDb[i]);
     }
 
-    // 8. Transient speed
+    // Transient speed
     let transientSpeed = 0;
     if (frames.length > 10) {
         const diffs = [];
@@ -210,63 +226,55 @@ function analyzeTrack(buf) {
         transientSpeed = top10.reduce((a, b) => a + b, 0) / top10.length;
     }
 
-    // 9. Fundamental tone (multi-chunk median)
+    // Fundamental tone (multi-chunk median)
     let fundamental = null;
     const activeIndices = [];
-    for (let i = 0; i < framesDb.length; i++) {
-        if (framesDb[i] > thresh) activeIndices.push(i);
-    }
+    for (let i = 0; i < framesDb.length; i++) { if (framesDb[i] > thresh) activeIndices.push(i); }
     if (activeIndices.length > 20) {
         const pitchResults = [];
-        const nChunks = 8;
-        const chunkSamples = Math.floor(sr * 0.15);
-        for (let c = 0; c < nChunks; c++) {
-            const idx = activeIndices[Math.floor(activeIndices.length * (c + 0.5) / nChunks)];
+        for (let c = 0; c < 8; c++) {
+            const idx = activeIndices[Math.floor(activeIndices.length * (c + 0.5) / 8)];
             const sampleStart = idx * hop;
+            const chunkSamples = Math.floor(sr * 0.15);
             if (sampleStart + chunkSamples > data.length) continue;
             const chunk = data.slice(sampleStart, sampleStart + chunkSamples);
-            const chunkRms = rms(chunk);
-            if (dB(chunkRms) < thresh) continue;
+            if (dB(rms(chunk)) < thresh) continue;
             const result = autocorrelate(chunk, sr, 70, 500);
             if (result && result.confidence > 0.4) pitchResults.push(result);
         }
         if (pitchResults.length >= 2) {
             pitchResults.sort((a, b) => a.freq - b.freq);
-            const mid = Math.floor(pitchResults.length / 2);
             const avgConf = pitchResults.reduce((s, r) => s + r.confidence, 0) / pitchResults.length;
-            fundamental = { freq: pitchResults[mid].freq, confidence: avgConf };
-        } else if (pitchResults.length === 1) {
-            fundamental = pitchResults[0];
-        }
+            fundamental = { freq: pitchResults[Math.floor(pitchResults.length / 2)].freq, confidence: avgConf };
+        } else if (pitchResults.length === 1) fundamental = pitchResults[0];
     }
 
-    // 10. Stereo Field
+    // Stereo
     let stereo = null;
     const channels = getStereoChannels(buf);
-    if (channels) {
-        stereo = stereoCorrelation(channels.L, channels.R, 4096, 2048);
-    }
+    if (channels) stereo = stereoCorrelation(channels.L, channels.R, 4096, 2048);
 
-    // 11. Harshness/Sibilance
+    // Harshness
     const harshness = detectHarshness(data, sr, freqs, psd);
 
-    // 12. Processing fingerprint
-    const fp = fingerprint(
-        crest, dynRange,
-        bands[0].energy, // Sub
-        bands[8].energy, // Air
-        bands.map(b => b.energy)
-    );
+    // NEW v2.0 metrics
+    const fp = fingerprint(crest, dynRange, bands.map(b => b.energy), data, sr);
+    const lufs = measureLUFS(data, sr);
+    const transients = analyzeTransients(data, sr);
+    const pitchData = pitchTrack(data, sr);
+    const tilt = spectralTilt(freqs, psdDb);
+    const noise = noiseFloor(data, sr);
+    const clipping = detectClipping(data);
 
     return {
         peakDb, rmsDb, activeRmsDb, crest, dynRange, transientSpeed,
         duration: data.length / sr, rawDuration: rawData.length / sr, sr,
-        specFreqs, specDb, bands,
-        resonances: resonances.slice(0, 8),
-        envTime, envDb,
+        specFreqs, specDb, envelopeNorm, freqs,
+        bands, resonances: resonances.slice(0, 8),
+        envTime, envDb: envDbArr,
         fundamental, stereo, harshness,
         isStereo: buf.numberOfChannels >= 2,
-        fp // processing fingerprint
+        fp, lufs, transients, pitchData, tilt, noise, clipping
     };
 }
 
@@ -274,123 +282,125 @@ function analyzeTrack(buf) {
    COMPARE TWO TRACKS
    ============================================================ */
 function compare(ref, mine) {
-    const T_OK = 4;
-    const T_WARN = 7;
-
-    // Processing context
+    const T_OK = 4, T_WARN = 7;
     const procDiffers = ref.fp.level !== mine.fp.level;
-    const refWet = ref.fp.hasReverb;
-    const mineDry = mine.fp.isDry;
+    const refWet = ref.fp.hasReverb, mineDry = mine.fp.isDry;
 
-    // Band diffs with weighted scoring
+    // Band comparison
     const bandDiffs = ref.bands.map((r, i) => {
         const m = mine.bands[i];
         const diff = r.energy - m.energy;
         const absDiff = Math.abs(diff);
-        const isProcessingBand = (r.name === 'Sub' || r.name === 'Bass' || r.name === 'Air');
+        const isProcBand = (r.name === 'Sub' || r.name === 'Bass' || r.name === 'Air');
 
         let severity, advice;
         if (absDiff < T_OK) {
             severity = 'ok';
-            advice = `${r.name} — ок (${absDiff.toFixed(1)} дБ) 👍`;
+            advice = `${r.name} — ок (${absDiff.toFixed(1)} дБ) ✅`;
         } else if (absDiff >= 12) {
             severity = diff > 0 ? 'boost' : 'cut';
-            advice = `${r.name}: ~${absDiff.toFixed(0)} дБ разницы. Это из-за обработки (реверб/сатурация), а не EQ. Не крути эквалайзер тут.`;
-        } else if (isProcessingBand && procDiffers && absDiff >= T_OK) {
+            advice = `${r.name}: ~${absDiff.toFixed(0)} дБ — разная обработка, не крути EQ тут.`;
+        } else if (isProcBand && procDiffers && absDiff >= T_OK) {
             severity = diff > 0 ? 'boost' : 'cut';
-            advice = `${r.name}: ${absDiff.toFixed(0)} дБ разницы — вероятно из-за разной обработки. Сначала сравни на одинаковой цепочке.`;
+            advice = `${r.name}: ${absDiff.toFixed(0)} дБ — вероятно из-за разной обработки.`;
         } else if (absDiff < T_WARN) {
             severity = diff > 0 ? 'boost' : 'cut';
-            const plugin = r.lo >= 3000 ? 'де-эссер или EQ' : 'EQ';
-            if (diff > 0) {
-                advice = `${r.name}: не хватает ~${absDiff.toFixed(0)} дБ. ${plugin}: буст ${r.lo}–${r.hi} Гц.`;
-            } else {
-                advice = `${r.name}: лишних ~${absDiff.toFixed(0)} дБ. ${plugin}: подрежь ${r.lo}–${r.hi} Гц.`;
-            }
+            const plugin = r.lo >= 3000 ? 'EQ / де-эссер' : 'EQ';
+            advice = diff > 0
+                ? `${r.name}: не хватает ~${absDiff.toFixed(0)} дБ. ${plugin}: буст ${r.lo}–${r.hi} Гц.`
+                : `${r.name}: лишних ~${absDiff.toFixed(0)} дБ. ${plugin}: подрежь ${r.lo}–${r.hi} Гц.`;
         } else {
             severity = diff > 0 ? 'boost' : 'cut';
-            const plugin = r.lo >= 3000 ? 'де-эссер / EQ' : 'EQ / компрессор';
-            if (diff > 0) {
-                advice = `⚠️ ${r.name}: серьёзно не хватает ~${absDiff.toFixed(0)} дБ. Проверь ${plugin} в зоне ${r.lo}–${r.hi} Гц.`;
-            } else {
-                advice = `⚠️ ${r.name}: перебор ~${absDiff.toFixed(0)} дБ. Проверь буст в ${plugin} на ${r.lo}–${r.hi} Гц.`;
-            }
+            const plugin = r.lo >= 3000 ? 'EQ / де-эссер' : 'EQ / компрессор';
+            advice = diff > 0
+                ? `⚠️ ${r.name}: не хватает ~${absDiff.toFixed(0)} дБ. Проверь ${plugin} на ${r.lo}–${r.hi} Гц.`
+                : `⚠️ ${r.name}: перебор ~${absDiff.toFixed(0)} дБ. Проверь ${plugin} на ${r.lo}–${r.hi} Гц.`;
         }
         return { ...r, refE: r.energy, mineE: m.energy, diff, severity, advice };
     });
 
-    // Dynamics (context-aware)
+    // Dynamics
     const crestDiff = mine.crest - ref.crest;
     const dynDiff = mine.dynRange - ref.dynRange;
 
     let compAdvice;
-    if (crestDiff < -6 && refWet && mineDry) {
-        compAdvice = `Crest фактор ниже на ${Math.abs(crestDiff).toFixed(1)} дБ — это реверб/эффекты на рефе раздувают пики. Твой сухой вокал в порядке. 👍`;
-    } else if (crestDiff > 6 && mine.fp.hasReverb && ref.fp.isDry) {
-        compAdvice = `Crest выше на ${crestDiff.toFixed(1)} дБ — у тебя реверб/дилей, это нормально.`;
-    } else if (crestDiff > 6) {
-        compAdvice = `Пики острее рефа на ${crestDiff.toFixed(1)} дБ. Компрессор: ускорь attack или опусти threshold.`;
-    } else if (crestDiff < -6) {
-        compAdvice = `Пережат на ${Math.abs(crestDiff).toFixed(1)} дБ. Компрессор: замедли attack или подними threshold.`;
-    } else {
+    if (crestDiff < -6 && refWet && mineDry)
+        compAdvice = `Crest ниже на ${Math.abs(crestDiff).toFixed(1)} дБ — реверб на рефе раздувает пики. Твой сухой ок. 👍`;
+    else if (crestDiff > 6 && mine.fp.hasReverb && ref.fp.isDry)
+        compAdvice = `Crest выше на ${crestDiff.toFixed(1)} дБ — у тебя реверб, нормально.`;
+    else if (crestDiff > 6)
+        compAdvice = `Пики острее рефа на ${crestDiff.toFixed(1)} дБ. Компрессор: ускорь attack / опусти threshold.`;
+    else if (crestDiff < -6)
+        compAdvice = `Пережат на ${Math.abs(crestDiff).toFixed(1)} дБ. Компрессор: замедли attack / подними threshold.`;
+    else
         compAdvice = `Компрессия ок — разница ${Math.abs(crestDiff).toFixed(1)} дБ 👍`;
-    }
 
     let dynAdvice;
-    if (dynDiff < -6 && refWet && mineDry) {
-        dynAdvice = `Динамика рефа шире на ${Math.abs(dynDiff).toFixed(1)} дБ — реверб создаёт тихие хвосты. Это нормально для сухого вокала. 👍`;
-    } else if (dynDiff > 6) {
-        dynAdvice = `Динамика шире рефа на ${dynDiff.toFixed(1)} дБ. Добавь компрессии — голос будет ровнее.`;
-    } else if (dynDiff < -6) {
-        dynAdvice = `Динамика уже рефа на ${Math.abs(dynDiff).toFixed(1)} дБ. Возможно перекомпрессия.`;
-    } else {
-        dynAdvice = `Динамический диапазон ок — разница ${Math.abs(dynDiff).toFixed(1)} дБ 👍`;
-    }
+    if (dynDiff < -6 && refWet && mineDry)
+        dynAdvice = `Динамика рефа шире на ${Math.abs(dynDiff).toFixed(1)} дБ — хвосты реверба. Для сухого нормально. 👍`;
+    else if (dynDiff > 6)
+        dynAdvice = `Динамика шире рефа на ${dynDiff.toFixed(1)} дБ. Добавь компрессии.`;
+    else if (dynDiff < -6)
+        dynAdvice = `Динамика уже на ${Math.abs(dynDiff).toFixed(1)} дБ. Возможно перекомпрессия.`;
+    else
+        dynAdvice = `Динамический диапазон ок — ${Math.abs(dynDiff).toFixed(1)} дБ 👍`;
 
-    // WEIGHTED SCORE — vocal bands matter more
+    // FIX 1.4: Score — only vocal bands, capped excess, skip dynamics if ref wet
     let totalDeviation = 0, maxDeviation = 0;
     bandDiffs.forEach(b => {
+        if (!SCORE_BANDS.includes(b.name)) return;
         const w = b.weight || 1;
         const excess = Math.max(0, Math.abs(b.diff) - 3);
-        totalDeviation += excess * excess * w;
-        maxDeviation += 144 * w; // max 12^2 * weight
+        const capped = Math.min(excess, 12);
+        totalDeviation += capped * capped * w;
+        maxDeviation += 144 * w;
     });
-    totalDeviation += Math.max(0, Math.abs(crestDiff) - 4) ** 2 * 0.4;
-    totalDeviation += Math.max(0, Math.abs(dynDiff) - 4) ** 2 * 0.2;
-    maxDeviation += 64 + 32;
-
-    const rawScore = 1 - Math.sqrt(totalDeviation / maxDeviation);
+    if (!ref.fp.hasReverb) {
+        totalDeviation += Math.max(0, Math.abs(crestDiff) - 4) ** 2 * 0.5;
+        totalDeviation += Math.max(0, Math.abs(dynDiff) - 4) ** 2 * 0.3;
+        maxDeviation += 64 * 0.5 + 64 * 0.3;
+    }
+    const rawScore = 1 - Math.sqrt(Math.min(1, totalDeviation / Math.max(maxDeviation, 1)));
     const score = Math.max(0, Math.min(100, Math.round(rawScore * 100)));
 
-    // PRIORITIES — skip Sub/Bass/Air when processing differs
+    // Priorities
     const pris = [];
     const sorted = [...bandDiffs].sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff));
     sorted.forEach(b => {
-        if (pris.length >= 3) return;
-        if (Math.abs(b.diff) < T_OK) return;
-        // Skip processing-dependent bands from priorities if processing levels differ
+        if (pris.length >= 3 || Math.abs(b.diff) < T_OK) return;
         if (procDiffers && (b.name === 'Sub' || b.name === 'Bass' || b.name === 'Air') && Math.abs(b.diff) < 12) return;
         pris.push(b.advice);
     });
     if (Math.abs(crestDiff) > 6 && !(refWet && mineDry)) pris.push(compAdvice);
 
-    // Harshness comparison
-    let harshAdvice = '';
+    // Harshness
     const hDiff = mine.harshness.index - ref.harshness.index;
-    if (hDiff > 15) {
-        harshAdvice = `Вокал ярче/жёстче рефа (${mine.harshness.index} vs ${ref.harshness.index}). Проверь де-эссер и бусты 4–10 кГц.`;
-    } else if (hDiff < -15) {
-        harshAdvice = `Вокал тусклее рефа (${mine.harshness.index} vs ${ref.harshness.index}). Возможно слишком агрессивный де-эссер.`;
-    } else {
-        harshAdvice = `Яркость верхов на уровне рефа 👍`;
+    let harshAdvice;
+    if (hDiff > 15) harshAdvice = `Ярче рефа (${mine.harshness.index} vs ${ref.harshness.index}). Проверь де-эссер 4–10 кГц.`;
+    else if (hDiff < -15) harshAdvice = `Тусклее рефа (${mine.harshness.index} vs ${ref.harshness.index}). Де-эссер слишком агрессивный?`;
+    else harshAdvice = `Яркость на уровне рефа 👍`;
+
+    // Tilt comparison
+    let tiltAdvice = '';
+    if (ref.tilt && mine.tilt) {
+        const tiltDiff = mine.tilt.slopeDbPerOct - ref.tilt.slopeDbPerOct;
+        if (tiltDiff < -2)
+            tiltAdvice = `Твой спектр темнее рефа на ${Math.abs(tiltDiff).toFixed(1)} дБ/окт. High-shelf EQ: +${Math.abs(tiltDiff).toFixed(1)} дБ с 4 кГц.`;
+        else if (tiltDiff > 2)
+            tiltAdvice = `Твой спектр ярче рефа на ${tiltDiff.toFixed(1)} дБ/окт. High-shelf EQ: -${tiltDiff.toFixed(1)} дБ с 4 кГц.`;
+        else
+            tiltAdvice = `Тилт спектра близок к рефу 👍`;
     }
 
-    // Duration mismatch warning
+    // Duration warning
     let durationWarning = null;
-    const durRatio = ref.rawDuration / Math.max(mine.rawDuration, 0.1);
-    if (durRatio > 2.5 || durRatio < 0.4) {
-        durationWarning = `Длительности файлов отличаются значительно (реф: ${ref.rawDuration.toFixed(0)}с, твой: ${mine.rawDuration.toFixed(0)}с). Анализ работает, но для лучшей точности используй похожие по длине фрагменты.`;
-    }
+    const ratio = ref.rawDuration / Math.max(mine.rawDuration, 0.1);
+    if (ratio > 2.5 || ratio < 0.4)
+        durationWarning = `Файлы разной длины (реф: ${ref.rawDuration.toFixed(0)}с, твой: ${mine.rawDuration.toFixed(0)}с). Для точности используй похожие фрагменты.`;
 
-    return { bandDiffs, compAdvice, dynAdvice, score, priorities: pris.slice(0, 4), harshAdvice, durationWarning, procDiffers };
+    return {
+        bandDiffs, compAdvice, dynAdvice, score,
+        priorities: pris.slice(0, 4),
+        harshAdvice, tiltAdvice, durationWarning, procDiffers
+    };
 }
