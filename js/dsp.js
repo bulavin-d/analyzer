@@ -252,20 +252,23 @@ function detectHarshness(data, sr, freqs, psd) {
     const rawIndex = Math.log10(harshRatio + 0.01) * 30 + 60;
     const index = Math.max(0, Math.min(100, Math.round(rawIndex)));
 
-    // De-esser advice
-    let deesserFreq = 6000;
-    let maxPsdInRange = 0;
+    // De-esser advice: weighted centroid of energy in 4-10kHz
+    // (single max peak was too noisy between identical takes)
+    let weightedFreqSum = 0, weightedEnergySum = 0;
     for (let i = 0; i < freqs.length; i++) {
-        if (freqs[i] >= 4000 && freqs[i] <= 10000 && psd[i] > maxPsdInRange) {
-            maxPsdInRange = psd[i];
-            deesserFreq = freqs[i];
+        if (freqs[i] >= 4000 && freqs[i] <= 10000) {
+            const w = psd[i] * psd[i]; // squared for emphasis on peaks
+            weightedFreqSum += freqs[i] * w;
+            weightedEnergySum += w;
         }
     }
+    let deesserFreq = weightedEnergySum > 0 ? weightedFreqSum / weightedEnergySum : 6000;
+    deesserFreq = Math.round(deesserFreq / 250) * 250; // round to 250 Hz
 
     return {
         index,
         harshRatio,
-        deesserFreq: Math.round(deesserFreq),
+        deesserFreq,
         sibilantPercent: totalFrames > 0 ? (sibilantPeaks / totalFrames * 100) : 0,
         sibilantPeaks,
         totalFrames

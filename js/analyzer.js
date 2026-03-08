@@ -132,15 +132,37 @@ function analyzeTrack(buf) {
     }
 
     // 8. NEW: Fundamental tone detection
-    // Use a chunk of active audio for autocorrelation
+    // Multi-chunk: sample 8 spots across the active audio, take median
     let fundamental = null;
-    const activeStart = framesDb.findIndex(f => f > thresh);
-    if (activeStart >= 0) {
-        const sampleStart = activeStart * hop;
-        const chunkLen = Math.min(Math.floor(sr * 2), data.length - sampleStart); // 2 sec max
-        if (chunkLen > sr * 0.1) {
-            const chunk = data.slice(sampleStart, sampleStart + chunkLen);
-            fundamental = autocorrelate(chunk, sr, 70, 500);
+    const activeIndices = [];
+    for (let i = 0; i < framesDb.length; i++) {
+        if (framesDb[i] > thresh) activeIndices.push(i);
+    }
+    if (activeIndices.length > 20) {
+        const pitchResults = [];
+        const nChunks = 8;
+        const chunkSamples = Math.floor(sr * 0.15); // 150ms chunks
+        for (let c = 0; c < nChunks; c++) {
+            const idx = activeIndices[Math.floor(activeIndices.length * (c + 0.5) / nChunks)];
+            const sampleStart = idx * hop;
+            if (sampleStart + chunkSamples > data.length) continue;
+            const chunk = data.slice(sampleStart, sampleStart + chunkSamples);
+            // Check chunk has enough energy
+            const chunkRms = rms(chunk);
+            if (dB(chunkRms) < thresh) continue;
+            const result = autocorrelate(chunk, sr, 70, 500);
+            if (result && result.confidence > 0.4) pitchResults.push(result);
+        }
+        if (pitchResults.length >= 2) {
+            // Take median frequency
+            pitchResults.sort((a, b) => a.freq - b.freq);
+            const mid = Math.floor(pitchResults.length / 2);
+            const medianResult = pitchResults[mid];
+            // Average confidence from all results
+            const avgConf = pitchResults.reduce((s, r) => s + r.confidence, 0) / pitchResults.length;
+            fundamental = { freq: medianResult.freq, confidence: avgConf, lag: medianResult.lag };
+        } else if (pitchResults.length === 1) {
+            fundamental = pitchResults[0];
         }
     }
 
@@ -200,12 +222,12 @@ function compare(ref, mine) {
         return { ...r, refE: r.energy, mineE: m.energy, diff, severity, advice };
     });
 
-    // Dynamics
+    // Dynamics (threshold 6 dB — natural take-to-take variation is 3-5 dB)
     const crestDiff = mine.crest - ref.crest;
     let compAdvice;
-    if (crestDiff > 4)
+    if (crestDiff > 6)
         compAdvice = `Твои пики на ${crestDiff.toFixed(1)} дБ острее, чем на рефе. Компрессоры пропускают удары — сделай attack быстрее или опусти threshold.`;
-    else if (crestDiff < -4)
+    else if (crestDiff < -6)
         compAdvice = `Ты пережат на ${Math.abs(crestDiff).toFixed(1)} дБ — голос может звучать "плоско". Подними threshold или замедли attack.`;
     else
         compAdvice = `Компрессия в норме — разница с рефом всего ${Math.abs(crestDiff).toFixed(1)} дБ 👍`;
@@ -236,7 +258,7 @@ function compare(ref, mine) {
     const pris = [];
     const sorted = [...bandDiffs].sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff));
     sorted.forEach(b => { if (Math.abs(b.diff) >= T_OK && pris.length < 3) pris.push(b.advice); });
-    if (Math.abs(crestDiff) > 4) pris.push(compAdvice);
+    if (Math.abs(crestDiff) > 6) pris.push(compAdvice);
 
     // Harshness comparison
     let harshAdvice = '';
