@@ -204,6 +204,10 @@ function compare(ref, mine) {
         if (absDiff < T_OK) {
             severity = 'ok';
             advice = `${r.name} — в пределах нормы (${absDiff.toFixed(1)} дБ разницы) 👍`;
+        } else if (absDiff >= 12) {
+            // Extreme = likely processing difference, not EQ
+            severity = diff > 0 ? 'boost' : 'cut';
+            advice = `${r.name}: разница ~${absDiff.toFixed(0)} дБ — скорее всего из-за разного уровня обработки (реверб, сатурация), а не эквалайзера.`;
         } else if (absDiff < T_WARN) {
             severity = diff > 0 ? 'boost' : 'cut';
             if (diff > 0) {
@@ -222,24 +226,40 @@ function compare(ref, mine) {
         return { ...r, refE: r.energy, mineE: m.energy, diff, severity, advice };
     });
 
-    // Dynamics (threshold 6 dB — natural take-to-take variation is 3-5 dB)
+    // Dynamics (context-aware: detects reverb/processing differences)
     const crestDiff = mine.crest - ref.crest;
-    let compAdvice;
-    if (crestDiff > 6)
-        compAdvice = `Твои пики на ${crestDiff.toFixed(1)} дБ острее, чем на рефе. Компрессоры пропускают удары — сделай attack быстрее или опусти threshold.`;
-    else if (crestDiff < -6)
-        compAdvice = `Ты пережат на ${Math.abs(crestDiff).toFixed(1)} дБ — голос может звучать "плоско". Подними threshold или замедли attack.`;
-    else
-        compAdvice = `Компрессия в норме — разница с рефом всего ${Math.abs(crestDiff).toFixed(1)} дБ 👍`;
-
     const dynDiff = mine.dynRange - ref.dynRange;
+
+    // Detect if reference likely has reverb/effects (high crest + wide DR)
+    const refHasEffects = ref.crest > 18 && ref.dynRange > 15;
+    const mineIsDry = mine.crest < 16 && mine.dynRange < 12;
+    const refIsDry = ref.crest < 16 && ref.dynRange < 12;
+    const mineHasEffects = mine.crest > 18 && mine.dynRange > 15;
+
+    let compAdvice;
+    if (crestDiff < -6 && refHasEffects && mineIsDry) {
+        // Classic case: dry vocal vs processed ref with reverb
+        compAdvice = `Разница в crest factor (${Math.abs(crestDiff).toFixed(1)} дБ) скорее всего из-за реверба/эффектов на референсе — он раздувает пики. Твой сухой вокал в порядке. После добавления реверба crest подтянется.`;
+    } else if (crestDiff > 6 && mineHasEffects && refIsDry) {
+        compAdvice = `Твой вокал с эффектами даёт crest выше на ${crestDiff.toFixed(1)} дБ. Это нормально если у тебя реверб/дилей.`;
+    } else if (crestDiff > 6) {
+        compAdvice = `Пики на ${crestDiff.toFixed(1)} дБ острее рефа. Компрессоры пропускают удары — сделай attack быстрее или опусти threshold.`;
+    } else if (crestDiff < -6) {
+        compAdvice = `Ты пережат на ${Math.abs(crestDiff).toFixed(1)} дБ vs реф. Подними threshold или замедли attack.`;
+    } else {
+        compAdvice = `Компрессия в норме — разница ${Math.abs(crestDiff).toFixed(1)} дБ 👍`;
+    }
+
     let dynAdvice;
-    if (dynDiff > 4)
+    if (dynDiff < -6 && refHasEffects && mineIsDry) {
+        dynAdvice = `Динамика у рефа шире на ${Math.abs(dynDiff).toFixed(1)} дБ — это реверб/эффекты создают тихие "хвосты". У сухого вокала это нормально.`;
+    } else if (dynDiff > 6) {
         dynAdvice = `Динамика шире рефа на ${dynDiff.toFixed(1)} дБ — голос может "гулять" по громкости. Добавь компрессии.`;
-    else if (dynDiff < -4)
-        dynAdvice = `Динамика уже рефа на ${Math.abs(dynDiff).toFixed(1)} дБ — голос может быть чуть "зажатым".`;
-    else
+    } else if (dynDiff < -6) {
+        dynAdvice = `Динамика уже рефа на ${Math.abs(dynDiff).toFixed(1)} дБ — голос может быть "зажатым".`;
+    } else {
         dynAdvice = `Динамический диапазон ок — разница ${Math.abs(dynDiff).toFixed(1)} дБ 👍`;
+    }
 
     // Score (exponential, calibrated)
     let totalDeviation = 0;

@@ -5,521 +5,652 @@
    ============================================================ */
 
 :root {
-  --bg: #050508;
-  --bg-card: rgba(255,255,255,0.035);
-  --bg-card-hover: rgba(255,255,255,0.055);
-  --border: rgba(255,255,255,0.07);
-  --border-glow: rgba(255,255,255,0.12);
-  --text: #e0e0e0;
-  --text-dim: #666;
-  --text-muted: #444;
-  --teal: #4ECDC4;
-  --orange: #FF6B35;
-  --green: #2ECC71;
-  --red: #E74C3C;
-  --yellow: #F7DC6F;
-  --purple: #9B59B6;
-  --glass-blur: 20px;
-  --radius: 16px;
-  --radius-sm: 10px;
+    --bg: #050508;
+    --bg-card: rgba(255, 255, 255, 0.035);
+    --bg-card-hover: rgba(255, 255, 255, 0.055);
+    --border: rgba(255, 255, 255, 0.07);
+    --border-glow: rgba(255, 255, 255, 0.12);
+    --text: #e0e0e0;
+    --text-dim: #666;
+    --text-muted: #444;
+    --teal: #4ECDC4;
+    --orange: #FF6B35;
+    --green: #2ECC71;
+    --red: #E74C3C;
+    --yellow: #F7DC6F;
+    --purple: #9B59B6;
+    --glass-blur: 20px;
+    --radius: 16px;
+    --radius-sm: 10px;
 }
 
-* { margin: 0; padding: 0; box-sizing: border-box; }
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
 
 body {
-  font-family: 'Inter', -apple-system, sans-serif;
-  background: var(--bg);
-  color: var(--text);
-  min-height: 100vh;
-  -webkit-font-smoothing: antialiased;
+    font-family: 'Inter', -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
 }
 
-.app { max-width: 1100px; margin: 0 auto; padding: 24px 20px; }
+.app {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 24px 20px;
+}
 
 /* ============================================================
    HEADER
    ============================================================ */
 .header {
-  text-align: center;
-  padding: 36px 20px 28px;
-  position: relative;
+    text-align: center;
+    padding: 36px 20px 28px;
+    position: relative;
 }
 
 .header::before {
-  content: '';
-  position: absolute;
-  top: 0; left: 50%;
-  transform: translateX(-50%);
-  width: 400px; height: 200px;
-  background: radial-gradient(ellipse, rgba(78,205,196,0.06) 0%, transparent 70%);
-  pointer-events: none;
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 400px;
+    height: 200px;
+    background: radial-gradient(ellipse, rgba(78, 205, 196, 0.06) 0%, transparent 70%);
+    pointer-events: none;
 }
 
 .header h1 {
-  font-size: 28px;
-  font-weight: 900;
-  letter-spacing: -0.5px;
-  background: linear-gradient(135deg, var(--teal) 0%, #45B7AA 50%, var(--orange) 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+    font-size: 28px;
+    font-weight: 900;
+    letter-spacing: -0.5px;
+    background: linear-gradient(135deg, var(--teal) 0%, #45B7AA 50%, var(--orange) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
 }
 
 .header .version {
-  display: inline-block;
-  margin-top: 6px;
-  padding: 3px 10px;
-  background: rgba(78,205,196,0.1);
-  border: 1px solid rgba(78,205,196,0.2);
-  border-radius: 20px;
-  font-size: 10px;
-  font-weight: 600;
-  color: var(--teal);
-  letter-spacing: 1.5px;
-  text-transform: uppercase;
+    display: inline-block;
+    margin-top: 6px;
+    padding: 3px 10px;
+    background: rgba(78, 205, 196, 0.1);
+    border: 1px solid rgba(78, 205, 196, 0.2);
+    border-radius: 20px;
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--teal);
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
 }
 
 .header .subtitle {
-  color: var(--text-dim);
-  font-size: 13px;
-  margin-top: 8px;
-  font-weight: 400;
+    color: var(--text-dim);
+    font-size: 13px;
+    margin-top: 8px;
+    font-weight: 400;
 }
 
 /* ============================================================
    DROP ZONES
    ============================================================ */
 .drops {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 14px;
-  margin-bottom: 18px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    margin-bottom: 18px;
 }
 
 .drop {
-  position: relative;
-  border: 1.5px dashed rgba(255,255,255,0.08);
-  border-radius: var(--radius);
-  padding: 32px 16px;
-  text-align: center;
-  cursor: pointer;
-  transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
-  background: var(--bg-card);
-  backdrop-filter: blur(var(--glass-blur));
-  -webkit-backdrop-filter: blur(var(--glass-blur));
-  overflow: hidden;
+    position: relative;
+    border: 1.5px dashed rgba(255, 255, 255, 0.08);
+    border-radius: var(--radius);
+    padding: 32px 16px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+    background: var(--bg-card);
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    overflow: hidden;
 }
 
 .drop::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: var(--radius);
-  background: linear-gradient(135deg, transparent 0%, rgba(255,255,255,0.02) 100%);
-  pointer-events: none;
-  transition: opacity 0.3s;
-  opacity: 0;
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: var(--radius);
+    background: linear-gradient(135deg, transparent 0%, rgba(255, 255, 255, 0.02) 100%);
+    pointer-events: none;
+    transition: opacity 0.3s;
+    opacity: 0;
 }
 
 .drop:hover {
-  border-color: rgba(255,255,255,0.15);
-  background: var(--bg-card-hover);
+    border-color: rgba(255, 255, 255, 0.15);
+    background: var(--bg-card-hover);
 }
 
-.drop:hover::before { opacity: 1; }
+.drop:hover::before {
+    opacity: 1;
+}
 
 .drop.active {
-  border-style: solid;
-  transform: scale(0.99);
+    border-style: solid;
+    transform: scale(0.99);
 }
 
-.drop.loaded { border-style: solid; }
-
-.drop-ref.active, .drop-ref.loaded {
-  border-color: rgba(255,107,53,0.4);
-  box-shadow: 0 0 30px rgba(255,107,53,0.05);
+.drop.loaded {
+    border-style: solid;
 }
 
-.drop-mine.active, .drop-mine.loaded {
-  border-color: rgba(78,205,196,0.4);
-  box-shadow: 0 0 30px rgba(78,205,196,0.05);
+.drop-ref.active,
+.drop-ref.loaded {
+    border-color: rgba(255, 107, 53, 0.4);
+    box-shadow: 0 0 30px rgba(255, 107, 53, 0.05);
 }
 
-.drop .icon { font-size: 28px; margin-bottom: 6px; }
-.drop .label { font-size: 13px; font-weight: 700; margin-bottom: 2px; letter-spacing: 0.5px; }
-.drop .sublabel { font-size: 11px; color: var(--text-muted); }
-.drop .filename { font-size: 12px; margin-top: 6px; font-weight: 600; }
-.drop-ref .filename { color: var(--orange); }
-.drop-mine .filename { color: var(--teal); }
-.drop input[type="file"] { display: none; }
+.drop-mine.active,
+.drop-mine.loaded {
+    border-color: rgba(78, 205, 196, 0.4);
+    box-shadow: 0 0 30px rgba(78, 205, 196, 0.05);
+}
+
+.drop .icon {
+    font-size: 28px;
+    margin-bottom: 6px;
+}
+
+.drop .label {
+    font-size: 13px;
+    font-weight: 700;
+    margin-bottom: 2px;
+    letter-spacing: 0.5px;
+}
+
+.drop .sublabel {
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.drop .filename {
+    font-size: 12px;
+    margin-top: 6px;
+    font-weight: 600;
+}
+
+.drop-ref .filename {
+    color: var(--orange);
+}
+
+.drop-mine .filename {
+    color: var(--teal);
+}
+
+.drop input[type="file"] {
+    display: none;
+}
 
 /* ============================================================
    ANALYZE BUTTON
    ============================================================ */
 .analyze-btn {
-  display: block;
-  width: 100%;
-  padding: 14px;
-  border: none;
-  border-radius: 12px;
-  font-family: 'Inter', sans-serif;
-  font-size: 15px;
-  font-weight: 700;
-  cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  margin-bottom: 20px;
-  letter-spacing: 0.5px;
+    display: block;
+    width: 100%;
+    padding: 14px;
+    border: none;
+    border-radius: 12px;
+    font-family: 'Inter', sans-serif;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    margin-bottom: 20px;
+    letter-spacing: 0.5px;
 }
 
 .analyze-btn.ready {
-  background: linear-gradient(135deg, var(--teal), var(--orange));
-  color: #000;
+    background: linear-gradient(135deg, var(--teal), var(--orange));
+    color: #000;
 }
 
 .analyze-btn.ready:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 8px 32px rgba(78,205,196,0.2), 0 4px 16px rgba(255,107,53,0.15);
+    transform: translateY(-1px);
+    box-shadow: 0 8px 32px rgba(78, 205, 196, 0.2), 0 4px 16px rgba(255, 107, 53, 0.15);
 }
 
 .analyze-btn.disabled {
-  background: rgba(255,255,255,0.04);
-  color: var(--text-muted);
-  cursor: not-allowed;
-  border: 1px solid rgba(255,255,255,0.05);
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--text-muted);
+    cursor: not-allowed;
+    border: 1px solid rgba(255, 255, 255, 0.05);
 }
 
 /* ============================================================
    PROGRESS
    ============================================================ */
 .progress {
-  text-align: center;
-  padding: 20px;
-  color: var(--text-dim);
-  font-size: 13px;
-  display: none;
+    text-align: center;
+    padding: 20px;
+    color: var(--text-dim);
+    font-size: 13px;
+    display: none;
 }
 
 .progress .bar {
-  width: 220px;
-  height: 3px;
-  background: rgba(255,255,255,0.06);
-  border-radius: 2px;
-  margin: 10px auto;
-  overflow: hidden;
+    width: 220px;
+    height: 3px;
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 2px;
+    margin: 10px auto;
+    overflow: hidden;
 }
 
 .progress .fill {
-  height: 100%;
-  background: linear-gradient(90deg, var(--teal), var(--orange));
-  border-radius: 2px;
-  transition: width 0.4s ease;
-  width: 0%;
+    height: 100%;
+    background: linear-gradient(90deg, var(--teal), var(--orange));
+    border-radius: 2px;
+    transition: width 0.4s ease;
+    width: 0%;
 }
 
 /* ============================================================
    RESULTS
    ============================================================ */
-#results { display: none; }
+#results {
+    display: none;
+}
 
 /* ============================================================
    CARD — Glass
    ============================================================ */
 .card {
-  background: var(--bg-card);
-  backdrop-filter: blur(var(--glass-blur));
-  -webkit-backdrop-filter: blur(var(--glass-blur));
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 22px;
-  margin-bottom: 14px;
-  position: relative;
-  overflow: hidden;
+    background: var(--bg-card);
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 22px;
+    margin-bottom: 14px;
+    position: relative;
+    overflow: hidden;
 }
 
 .card::after {
-  content: '';
-  position: absolute;
-  top: 0; left: 0; right: 0;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.06), transparent);
-  pointer-events: none;
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.06), transparent);
+    pointer-events: none;
 }
 
 .card h2 {
-  font-size: 15px;
-  font-weight: 700;
-  margin-bottom: 12px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  letter-spacing: -0.2px;
+    font-size: 15px;
+    font-weight: 700;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    letter-spacing: -0.2px;
 }
 
-.card h2 .ic { font-size: 18px; }
-.card .hint { font-size: 11px; color: var(--text-muted); margin-bottom: 10px; line-height: 1.5; }
+.card h2 .ic {
+    font-size: 18px;
+}
+
+.card .hint {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-bottom: 10px;
+    line-height: 1.5;
+}
 
 /* ============================================================
    SCORE
    ============================================================ */
-.score-wrap { text-align: center; padding: 20px; }
+.score-wrap {
+    text-align: center;
+    padding: 20px;
+}
 
 .score-num {
-  font-size: 60px;
-  font-weight: 900;
-  line-height: 1;
-  letter-spacing: -3px;
+    font-size: 60px;
+    font-weight: 900;
+    line-height: 1;
+    letter-spacing: -3px;
 }
 
 .score-label {
-  font-size: 11px;
-  color: var(--text-dim);
-  margin-top: 6px;
-  text-transform: uppercase;
-  letter-spacing: 1px;
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-top: 6px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
 }
 
 /* ============================================================
    STATS GRID
    ============================================================ */
 .stats {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 8px;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 8px;
 }
 
 .st {
-  background: rgba(255,255,255,0.025);
-  border-radius: var(--radius-sm);
-  padding: 14px 10px;
-  text-align: center;
-  border: 1px solid rgba(255,255,255,0.04);
+    background: rgba(255, 255, 255, 0.025);
+    border-radius: var(--radius-sm);
+    padding: 14px 10px;
+    text-align: center;
+    border: 1px solid rgba(255, 255, 255, 0.04);
 }
 
 .st .sl {
-  font-size: 9px;
-  color: var(--text-dim);
-  text-transform: uppercase;
-  letter-spacing: 1px;
-  margin-bottom: 4px;
+    font-size: 9px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 4px;
 }
 
-.st .sv { font-size: 18px; font-weight: 800; color: var(--teal); }
-.st .ss { font-size: 10px; color: var(--text-muted); margin-top: 2px; }
+.st .sv {
+    font-size: 18px;
+    font-weight: 800;
+    color: var(--teal);
+}
+
+.st .ss {
+    font-size: 10px;
+    color: var(--text-muted);
+    margin-top: 2px;
+}
 
 /* ============================================================
    ADVICE / PRIORITY BLOCKS
    ============================================================ */
 .pri {
-  padding: 11px 14px;
-  margin-bottom: 5px;
-  border-left: 3px solid var(--orange);
-  border-radius: 0 8px 8px 0;
-  font-size: 12px;
-  line-height: 1.5;
-  background: rgba(255,107,53,0.04);
-  color: #ccc;
+    padding: 11px 14px;
+    margin-bottom: 5px;
+    border-left: 3px solid var(--orange);
+    border-radius: 0 8px 8px 0;
+    font-size: 12px;
+    line-height: 1.5;
+    background: rgba(255, 107, 53, 0.04);
+    color: #ccc;
 }
 
-.pri:nth-child(2) { border-left-color: var(--yellow); background: rgba(247,220,111,0.03); }
-.pri:nth-child(3) { border-left-color: var(--teal); background: rgba(78,205,196,0.03); }
-.pri:nth-child(4) { border-left-color: var(--purple); background: rgba(155,89,182,0.03); }
+.pri:nth-child(2) {
+    border-left-color: var(--yellow);
+    background: rgba(247, 220, 111, 0.03);
+}
+
+.pri:nth-child(3) {
+    border-left-color: var(--teal);
+    background: rgba(78, 205, 196, 0.03);
+}
+
+.pri:nth-child(4) {
+    border-left-color: var(--purple);
+    background: rgba(155, 89, 182, 0.03);
+}
 
 .pri-ok {
-  border-left-color: var(--green) !important;
-  background: rgba(46,204,113,0.04) !important;
+    border-left-color: var(--green) !important;
+    background: rgba(46, 204, 113, 0.04) !important;
 }
 
 .advice-block {
-  padding: 10px 14px;
-  margin-top: 6px;
-  border-left: 3px solid var(--yellow);
-  border-radius: 0 8px 8px 0;
-  font-size: 12px;
-  line-height: 1.5;
-  background: rgba(247,220,111,0.03);
-  color: #bbb;
+    padding: 10px 14px;
+    margin-top: 6px;
+    border-left: 3px solid var(--yellow);
+    border-radius: 0 8px 8px 0;
+    font-size: 12px;
+    line-height: 1.5;
+    background: rgba(247, 220, 111, 0.03);
+    color: #bbb;
 }
 
 /* ============================================================
    BAND ROWS
    ============================================================ */
 .brow {
-  display: grid;
-  grid-template-columns: 78px 65px 1fr 60px 52px;
-  align-items: center;
-  padding: 7px 0;
-  border-bottom: 1px solid rgba(255,255,255,0.025);
-  gap: 6px;
+    display: grid;
+    grid-template-columns: 78px 65px 1fr 60px 52px;
+    align-items: center;
+    padding: 7px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.025);
+    gap: 6px;
 }
 
-.brow:last-child { border-bottom: none; }
-.bn { font-size: 11px; font-weight: 700; }
-.bf { font-size: 10px; color: var(--text-muted); }
-.bb { display: flex; gap: 3px; align-items: center; }
+.brow:last-child {
+    border-bottom: none;
+}
+
+.bn {
+    font-size: 11px;
+    font-weight: 700;
+}
+
+.bf {
+    font-size: 10px;
+    color: var(--text-muted);
+}
+
+.bb {
+    display: flex;
+    gap: 3px;
+    align-items: center;
+}
 
 .bbar {
-  height: 14px;
-  border-radius: 3px;
-  min-width: 2px;
-  transition: width 0.6s ease;
+    height: 14px;
+    border-radius: 3px;
+    min-width: 2px;
+    transition: width 0.6s ease;
 }
 
-.bd { font-size: 11px; font-weight: 800; text-align: right; }
+.bd {
+    font-size: 11px;
+    font-weight: 800;
+    text-align: right;
+}
 
 .bv {
-  font-size: 9px;
-  font-weight: 700;
-  text-align: center;
-  padding: 2px 5px;
-  border-radius: 4px;
+    font-size: 9px;
+    font-weight: 700;
+    text-align: center;
+    padding: 2px 5px;
+    border-radius: 4px;
 }
 
-.bv-ok { background: rgba(46,204,113,0.1); color: var(--green); }
-.bv-boost { background: rgba(78,205,196,0.1); color: var(--teal); }
-.bv-cut { background: rgba(255,107,53,0.1); color: var(--orange); }
+.bv-ok {
+    background: rgba(46, 204, 113, 0.1);
+    color: var(--green);
+}
+
+.bv-boost {
+    background: rgba(78, 205, 196, 0.1);
+    color: var(--teal);
+}
+
+.bv-cut {
+    background: rgba(255, 107, 53, 0.1);
+    color: var(--orange);
+}
 
 .badvice {
-  font-size: 10px;
-  color: #555;
-  padding: 1px 0 5px 143px;
-  line-height: 1.4;
+    font-size: 10px;
+    color: #555;
+    padding: 1px 0 5px 143px;
+    line-height: 1.4;
 }
 
 /* ============================================================
    CHART CONTAINER
    ============================================================ */
 .chwrap {
-  background: rgba(0,0,0,0.3);
-  border-radius: var(--radius-sm);
-  border: 1px solid rgba(255,255,255,0.03);
-  padding: 12px;
-  height: 300px;
-  position: relative;
-  margin-top: 8px;
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: var(--radius-sm);
+    border: 1px solid rgba(255, 255, 255, 0.03);
+    padding: 12px;
+    height: 300px;
+    position: relative;
+    margin-top: 8px;
 }
 
-.chwrap-tall { height: 360px; }
+.chwrap-tall {
+    height: 360px;
+}
 
 /* ============================================================
    RESONANCE / METRIC TAGS
    ============================================================ */
 .rtag {
-  display: inline-block;
-  padding: 5px 10px;
-  margin: 3px;
-  background: rgba(231,76,60,0.08);
-  border: 1px solid rgba(231,76,60,0.18);
-  border-radius: 6px;
-  font-size: 11px;
+    display: inline-block;
+    padding: 5px 10px;
+    margin: 3px;
+    background: rgba(231, 76, 60, 0.08);
+    border: 1px solid rgba(231, 76, 60, 0.18);
+    border-radius: 6px;
+    font-size: 11px;
 }
 
-.rfreq { font-weight: 700; color: var(--red); }
-.rexc { color: #666; font-size: 10px; }
+.rfreq {
+    font-weight: 700;
+    color: var(--red);
+}
+
+.rexc {
+    color: #666;
+    font-size: 10px;
+}
 
 /* ============================================================
    METER BAR (for harshness, stereo)
    ============================================================ */
 .meter {
-  width: 100%;
-  height: 6px;
-  background: rgba(255,255,255,0.06);
-  border-radius: 3px;
-  overflow: hidden;
-  margin: 8px 0;
+    width: 100%;
+    height: 6px;
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 3px;
+    overflow: hidden;
+    margin: 8px 0;
 }
 
 .meter-fill {
-  height: 100%;
-  border-radius: 3px;
-  transition: width 0.6s ease;
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.6s ease;
 }
 
 .meter-label {
-  display: flex;
-  justify-content: space-between;
-  font-size: 10px;
-  color: var(--text-muted);
-  margin-top: 2px;
+    display: flex;
+    justify-content: space-between;
+    font-size: 10px;
+    color: var(--text-muted);
+    margin-top: 2px;
 }
 
 /* ============================================================
    NEW FEATURE CARDS
    ============================================================ */
 .feature-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-  margin-top: 10px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-top: 10px;
 }
 
 .feature-box {
-  background: rgba(255,255,255,0.02);
-  border: 1px solid rgba(255,255,255,0.04);
-  border-radius: var(--radius-sm);
-  padding: 14px;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.04);
+    border-radius: var(--radius-sm);
+    padding: 14px;
 }
 
 .feature-box .fb-label {
-  font-size: 9px;
-  text-transform: uppercase;
-  letter-spacing: 1px;
-  color: var(--text-dim);
-  margin-bottom: 4px;
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-dim);
+    margin-bottom: 4px;
 }
 
 .feature-box .fb-value {
-  font-size: 22px;
-  font-weight: 800;
+    font-size: 22px;
+    font-weight: 800;
 }
 
 .feature-box .fb-sub {
-  font-size: 10px;
-  color: var(--text-muted);
-  margin-top: 2px;
+    font-size: 10px;
+    color: var(--text-muted);
+    margin-top: 2px;
 }
 
 /* ============================================================
    LEGEND
    ============================================================ */
 .leg {
-  display: flex;
-  gap: 14px;
-  font-size: 10px;
-  color: var(--text-muted);
-  margin-top: 8px;
+    display: flex;
+    gap: 14px;
+    font-size: 10px;
+    color: var(--text-muted);
+    margin-top: 8px;
 }
 
 .leg span {
-  display: flex;
-  align-items: center;
-  gap: 4px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
 }
 
 .leg .dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 2px;
-  display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 2px;
+    display: inline-block;
 }
 
 /* ============================================================
    FOOTER
    ============================================================ */
 .footer {
-  text-align: center;
-  padding: 24px 20px;
-  color: #2a2a2a;
-  font-size: 10px;
-  letter-spacing: 0.3px;
+    text-align: center;
+    padding: 24px 20px;
+    color: #2a2a2a;
+    font-size: 10px;
+    letter-spacing: 0.3px;
 }
 
 /* ============================================================
    RESPONSIVE
    ============================================================ */
 @media (max-width: 700px) {
-  .drops { grid-template-columns: 1fr; }
-  .brow { grid-template-columns: 55px 45px 1fr 48px 42px; }
-  .badvice { padding-left: 0; }
-  .feature-grid { grid-template-columns: 1fr; }
-  .header h1 { font-size: 22px; }
+    .drops {
+        grid-template-columns: 1fr;
+    }
+
+    .brow {
+        grid-template-columns: 55px 45px 1fr 48px 42px;
+    }
+
+    .badvice {
+        padding-left: 0;
+    }
+
+    .feature-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .header h1 {
+        font-size: 22px;
+    }
 }
