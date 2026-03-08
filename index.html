@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BULAVIN AI ANALYZER</title>
+    <meta name="description" content="Сравни свой вокал с референсом — спектр, динамика, тон, фаза, сибилянты">
+    <link rel="stylesheet" href="css/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+</head>
+
+<body>
+    <div class="app">
+
+        <!-- HEADER -->
+        <div class="header">
+            <h1>🎤 BULAVIN AI ANALYZER</h1>
+            <div class="version">v1.1 PRO</div>
+            <div class="subtitle">Закинь референс и свой вокал — получишь полный разбор</div>
+        </div>
+
+        <!-- DROP ZONES -->
+        <div class="drops">
+            <div class="drop drop-ref" id="dropRef" onclick="document.getElementById('fileRef').click()">
+                <div class="icon">🔶</div>
+                <div class="label">РЕФЕРЕНС</div>
+                <div class="sublabel">WAV — чужой вокал (цель)</div>
+                <div class="filename" id="nameRef"></div>
+                <input type="file" id="fileRef" accept=".wav,.mp3,.flac,.ogg,.m4a,.aac">
+            </div>
+            <div class="drop drop-mine" id="dropMine" onclick="document.getElementById('fileMine').click()">
+                <div class="icon">🔷</div>
+                <div class="label">ТВОЙ ВОКАЛ</div>
+                <div class="sublabel">WAV — твоя запись</div>
+                <div class="filename" id="nameMine"></div>
+                <input type="file" id="fileMine" accept=".wav,.mp3,.flac,.ogg,.m4a,.aac">
+            </div>
+        </div>
+
+        <!-- BUTTON -->
+        <button class="analyze-btn disabled" id="btnAnalyze" disabled>Загрузи оба файла</button>
+
+        <!-- PROGRESS -->
+        <div class="progress" id="progress">
+            <div id="progText">Анализирую...</div>
+            <div class="bar">
+                <div class="fill" id="progFill"></div>
+            </div>
+        </div>
+
+        <!-- RESULTS -->
+        <div id="results"></div>
+
+        <!-- FOOTER -->
+        <div class="footer">BULAVIN AI ANALYZER v1.1 PRO · All rights reserved © 2026 · Powered by BULAVIN</div>
+
+    </div>
+
+    <!-- Scripts (order matters: dsp → analyzer → app) -->
+    <script src="js/dsp.js"></script>
+    <script src="js/analyzer.js"></script>
+    <script src="js/app.js"></script>
+</body>
+
+</html>
