@@ -1,5 +1,5 @@
 /* ============================================================
-   BULAVIN AI ANALYZER — App Module
+   BULAVIN AI ANALYZER v1.1 PRO — App Module
    File handling, UI rendering, Chart.js integration
    ============================================================ */
 
@@ -48,7 +48,7 @@ async function handleFile(file, isRef) {
         }
         checkReady();
     } catch (e) {
-        alert('Ошибка загрузки файла: ' + e.message + '\n\nПоддерживаются только WAV файлы.');
+        alert('Ошибка загрузки: ' + e.message + '\n\nПоддерживаются WAV, FLAC, MP3, OGG, M4A.');
     }
 }
 
@@ -76,7 +76,7 @@ async function runAnalysis() {
     document.getElementById('results').style.display = 'none';
 
     await sleep(80);
-    text.textContent = '⏳ Анализ референса...'; fill.style.width = '20%';
+    text.textContent = '⏳ Обрезка тишины и анализ референса...'; fill.style.width = '20%';
     await sleep(30);
     const refResult = analyzeTrack(refBuffer);
 
@@ -84,7 +84,7 @@ async function runAnalysis() {
     await sleep(30);
     const mineResult = analyzeTrack(mineBuffer);
 
-    text.textContent = '⏳ Сравнение...'; fill.style.width = '85%';
+    text.textContent = '⏳ Сравнение и генерация рекомендаций...'; fill.style.width = '85%';
     await sleep(30);
     const comp = compare(refResult, mineResult);
 
@@ -100,22 +100,47 @@ async function runAnalysis() {
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
+// --- Processing badge ---
+function fpBadge(fp) {
+    const labels = {
+        dry: ['🎤 Сухой', 'var(--teal)'],
+        lightly: ['🎛️ Лёгкая обработка', 'var(--yellow)'],
+        processed: ['⚙️ Обработан', 'var(--orange)'],
+        wet: ['🌊 С ревербом', 'var(--purple)']
+    };
+    const [text, color] = labels[fp.level] || labels.dry;
+    return `<span style="font-size:10px;padding:2px 8px;border-radius:10px;background:rgba(255,255,255,0.05);color:${color};border:1px solid ${color};font-weight:600">${text}</span>`;
+}
+
 // ============================================================
 // RENDER RESULTS
 // ============================================================
 function renderResults(ref, mine, comp) {
     const r = document.getElementById('results');
-    const sColor = comp.score >= 80 ? '#2ECC71' : (comp.score >= 55 ? '#F7DC6F' : '#FF6B35');
+    const sColor = comp.score >= 85 ? '#2ECC71' : (comp.score >= 60 ? '#F7DC6F' : '#FF6B35');
     let html = '';
+
+    // --- PROCESSING BADGES ---
+    html += `<div class="card" style="text-align:center;padding:14px">
+    <span style="font-size:12px;color:var(--text-dim)">Референс:</span> ${fpBadge(ref.fp)}
+    <span style="margin-left:20px;font-size:12px;color:var(--text-dim)">Твой вокал:</span> ${fpBadge(mine.fp)}
+  </div>`;
+
+    // --- DURATION WARNING ---
+    if (comp.durationWarning) {
+        html += `<div class="card" style="border-left:3px solid var(--yellow);padding:12px 16px">
+      <span style="font-size:12px;color:var(--yellow)">⚠️ ${comp.durationWarning}</span>
+    </div>`;
+    }
 
     // --- SCORE ---
     html += `<div class="card score-wrap">
     <div class="score-num" style="color:${sColor}">${comp.score}</div>
-    <div class="score-label">Match Score — насколько тональный баланс совпадает</div>
+    <div class="score-label">Match Score — тональный баланс (взвешенный по важности зон)</div>
   </div>`;
 
     // --- PRIORITIES ---
-    html += `<div class="card"><h2><span class="ic">🎯</span> На что обратить внимание</h2>`;
+    html += `<div class="card"><h2><span class="ic">🎯</span> Главное</h2>`;
     if (comp.priorities.length === 0)
         html += `<div class="pri pri-ok">Все зоны в пределах нормы — звук близок к референсу 🔥</div>`;
     else
@@ -124,7 +149,7 @@ function renderResults(ref, mine, comp) {
 
     // --- DYNAMICS ---
     html += `<div class="card"><h2><span class="ic">📊</span> Динамика и компрессия</h2>
-    <div class="hint">Эти числа показывают, насколько ровно звучит голос. Crest Factor = разница между пиками и средней громкостью. Чем меньше — тем плотнее вокал.</div>
+    <div class="hint">Crest Factor = пики vs средняя громкость (меньше = плотнее). Dynamic Range = разброс громкости (P5–P95, без экстремумов).</div>
     <div class="stats">
       <div class="st"><div class="sl">Crest Factor</div><div class="sv">${mine.crest.toFixed(1)}</div><div class="ss">Реф: ${ref.crest.toFixed(1)} dB</div></div>
       <div class="st"><div class="sl">Dynamic Range</div><div class="sv">${mine.dynRange.toFixed(1)}</div><div class="ss">Реф: ${ref.dynRange.toFixed(1)} dB</div></div>
@@ -135,29 +160,27 @@ function renderResults(ref, mine, comp) {
     <div class="advice-block" style="border-left-color:#9B59B6">💡 ${comp.dynAdvice}</div>
   </div>`;
 
-    // --- NEW: FUNDAMENTAL TONE ---
+    // --- FUNDAMENTAL TONE ---
     html += `<div class="card"><h2><span class="ic">🎵</span> Основной тон голоса</h2>
-    <div class="hint">Это самая низкая частота, на которой реально вибрирует твой голос. Всё что ниже — шум и "proximity effect" от микрофона. HPF (high-pass filter) ставь ниже этой ноты.</div>
+    <div class="hint">Самая низкая рабочая частота голоса. HPF ставь ниже неё — всё что ниже = грязь от микрофона и комнаты.</div>
     <div class="feature-grid">`;
-
     if (mine.fundamental) {
         const note = freqToNote(mine.fundamental.freq);
-        const hpfSafe = Math.round(mine.fundamental.freq * 0.55);
+        const hpfSafe = Math.round(mine.fundamental.freq * 0.6);
         html += `<div class="feature-box"><div class="fb-label">Твой голос</div>
       <div class="fb-value" style="color:var(--teal)">${Math.round(mine.fundamental.freq)} Hz</div>
       <div class="fb-sub">Нота: ${note} · Уверенность: ${(mine.fundamental.confidence * 100).toFixed(0)}%</div></div>`;
-        html += `<div class="feature-box"><div class="fb-label">Безопасный HPF</div>
+        html += `<div class="feature-box"><div class="fb-label">HPF безопасно</div>
       <div class="fb-value" style="color:var(--green)">${hpfSafe} Hz</div>
-      <div class="fb-sub">Всё что ниже ${hpfSafe} Гц — мусор, можно резать</div></div>`;
+      <div class="fb-sub">Ниже ${hpfSafe} Гц — режь не задумываясь</div></div>`;
     } else {
         html += `<div class="feature-box"><div class="fb-label">Твой голос</div>
       <div class="fb-value" style="color:var(--text-dim)">—</div>
-      <div class="fb-sub">Не удалось определить (мало тональных фрагментов)</div></div>`;
-        html += `<div class="feature-box"><div class="fb-label">Безопасный HPF</div>
+      <div class="fb-sub">Мало тональных фрагментов в записи</div></div>`;
+        html += `<div class="feature-box"><div class="fb-label">HPF безопасно</div>
       <div class="fb-value" style="color:var(--text-dim)">~80 Hz</div>
-      <div class="fb-sub">Стандартное значение для мужского вокала</div></div>`;
+      <div class="fb-sub">Стандарт для мужского вокала</div></div>`;
     }
-
     if (ref.fundamental) {
         const refNote = freqToNote(ref.fundamental.freq);
         html += `<div class="feature-box"><div class="fb-label">Референс</div>
@@ -166,57 +189,53 @@ function renderResults(ref, mine, comp) {
     }
     html += `</div></div>`;
 
-    // --- NEW: HARSHNESS / SIBILANCE ---
+    // --- HARSHNESS / SIBILANCE ---
     html += `<div class="card"><h2><span class="ic">🔊</span> Яркость и сибилянты</h2>
-    <div class="hint">Индекс показывает, насколько "ядовитые" верхние частоты (4–10 кГц). Выше 65 = скорее всего нужен де-эссер или вырез в EQ. Ниже 35 = голос может звучать тускло.</div>`;
-
-    // Mine
+    <div class="hint">Индекс ядовитости верхов (4–10 кГц). >65 = нужен де-эссер. <35 = тускло.</div>`;
     const mhc = mine.harshness.index > 65 ? 'var(--red)' : (mine.harshness.index > 45 ? 'var(--yellow)' : 'var(--green)');
     html += `<div class="feature-grid">
-    <div class="feature-box"><div class="fb-label">Твой индекс яркости</div>
+    <div class="feature-box"><div class="fb-label">Твой индекс</div>
       <div class="fb-value" style="color:${mhc}">${mine.harshness.index}</div>
-      <div class="fb-sub">${mine.harshness.index > 65 ? 'Верха агрессивные' : mine.harshness.index > 45 ? 'Норма' : 'Верха приглушены'}</div></div>
-    <div class="feature-box"><div class="fb-label">Пик сибилянтов</div>
+      <div class="fb-sub">${mine.harshness.index > 65 ? 'Агрессивно' : mine.harshness.index > 45 ? 'Норма' : 'Тускло'}</div></div>
+    <div class="feature-box"><div class="fb-label">Де-эссер на</div>
       <div class="fb-value" style="color:var(--teal)">${mine.harshness.deesserFreq} Hz</div>
-      <div class="fb-sub">Де-эссер ставь на эту частоту</div></div>
-    <div class="feature-box"><div class="fb-label">Реф: индекс яркости</div>
+      <div class="fb-sub">Центр сибилянтов</div></div>
+    <div class="feature-box"><div class="fb-label">Реф: индекс</div>
       <div class="fb-value" style="color:var(--orange)">${ref.harshness.index}</div>
-      <div class="fb-sub">${ref.harshness.index > 65 ? 'Верха агрессивные' : ref.harshness.index > 45 ? 'Норма' : 'Верха приглушены'}</div></div>
-    <div class="feature-box"><div class="fb-label">Реф: пик сибилянтов</div>
+      <div class="fb-sub">${ref.harshness.index > 65 ? 'Агрессивно' : ref.harshness.index > 45 ? 'Норма' : 'Тускло'}</div></div>
+    <div class="feature-box"><div class="fb-label">Реф: де-эссер</div>
       <div class="fb-value" style="color:var(--orange)">${ref.harshness.deesserFreq} Hz</div>
-      <div class="fb-sub">У рефа максимум тут</div></div>
+      <div class="fb-sub">Центр у рефа</div></div>
   </div>`;
     html += `<div class="advice-block" style="border-left-color:var(--red)">💡 ${comp.harshAdvice}</div></div>`;
 
-    // --- NEW: STEREO FIELD ---
+    // --- STEREO FIELD ---
     if (mine.isStereo || ref.isStereo) {
         html += `<div class="card"><h2><span class="ic">🔄</span> Стерео и фаза</h2>
-      <div class="hint">Корреляция = насколько левый и правый каналы "согласованы". +1.0 = чистый моно, 0 = широкий стерео, минус = фазовые проблемы (в моно пропадёт звук).</div>`;
-
+      <div class="hint">+1.0 = моно, 0 = широко, минус = фазовые проблемы (пропадёт в моно).</div>`;
         if (mine.stereo) {
             const phaseOk = mine.stereo.avgCorr > 0.3;
             const pColor = phaseOk ? 'var(--green)' : 'var(--red)';
             html += `<div class="feature-grid">
         <div class="feature-box"><div class="fb-label">Корреляция L/R</div>
           <div class="fb-value" style="color:${pColor}">${mine.stereo.avgCorr.toFixed(2)}</div>
-          <div class="fb-sub">${phaseOk ? 'Моно-совместим ✅' : '⚠️ Фазовые проблемы!'}</div></div>
-        <div class="feature-box"><div class="fb-label">Ширина стерео</div>
+          <div class="fb-sub">${phaseOk ? 'Моно-совместим ✅' : '⚠️ Фазовые конфликты!'}</div></div>
+        <div class="feature-box"><div class="fb-label">Ширина</div>
           <div class="fb-value" style="color:var(--teal)">${(mine.stereo.width * 100).toFixed(0)}%</div>
           <div class="fb-sub">${mine.stereo.width < 0.1 ? 'Моно' : mine.stereo.width < 0.4 ? 'Узкий' : mine.stereo.width < 0.7 ? 'Средний' : 'Широкий'}</div></div>
       </div>`;
             if (mine.stereo.phaseIssuePercent > 5) {
-                html += `<div class="advice-block" style="border-left-color:var(--red)">⚠️ ${mine.stereo.phaseIssuePercent.toFixed(0)}% фреймов с отрицательной корреляцией — в моно эти участки пропадут. Проверь стерео-расширители.</div>`;
+                html += `<div class="advice-block" style="border-left-color:var(--red)">⚠️ ${mine.stereo.phaseIssuePercent.toFixed(0)}% фреймов с фазовыми конфликтами. Проверь стерео-плагины.</div>`;
             }
         } else {
-            html += `<div class="advice-block" style="border-left-color:var(--green)">Файл моно — фазовых проблем быть не может 👍</div>`;
+            html += `<div class="advice-block" style="border-left-color:var(--green)">Моно-файл — фазовых проблем нет 👍</div>`;
         }
         html += `</div>`;
     }
 
     // --- BAND COMPARISON ---
-    html += `<div class="card"><h2><span class="ic">🎚️</span> Сравнение по частотным зонам</h2>
-    <div class="hint">Программа выровняла громкость файлов. Сравнивается ФОРМА звука, а не кто громче записан. Тут видно какие частоты у тебя перекачаны или недокачаны.</div>`;
-
+    html += `<div class="card"><h2><span class="ic">🎚️</span> Частотные зоны</h2>
+    <div class="hint">Громкость выровнена автоматически. Сравнивается ФОРМА спектра. Зоны Sub/Bass/Air весят меньше в скоринге — там голос не живёт.</div>`;
     comp.bandDiffs.forEach(b => {
         const sCls = b.severity === 'ok' ? 'bv-ok' : (b.severity === 'boost' ? 'bv-boost' : 'bv-cut');
         const sText = b.severity === 'ok' ? '✅' : (b.severity === 'boost' ? '🔺' : '🔻');
@@ -228,50 +247,62 @@ function renderResults(ref, mine, comp) {
       <div class="bb"><div class="bbar" style="width:${rW}px;background:var(--orange)"></div><div class="bbar" style="width:${mW}px;background:var(--teal)"></div></div>
       <div class="bd" style="color:${dCol}">${b.diff > 0 ? '+' : ''}${b.diff.toFixed(1)}</div>
       <div class="bv ${sCls}">${sText}</div>
-    </div><div class="badvice">${b.desc} — ${b.advice}</div>`;
+    </div><div class="badvice">${b.advice}</div>`;
     });
     html += `<div class="leg"><span><div class="dot" style="background:var(--orange)"></div> Референс</span><span><div class="dot" style="background:var(--teal)"></div> Твой вокал</span></div></div>`;
 
-    // --- SPECTRUM CHART ---
+    // --- SPECTRUM ---
     html += `<div class="card"><h2><span class="ic">📈</span> Спектр</h2>
-    <div class="hint">Это "форма" каждого голоса по частотам. Где оранжевая линия выше — у тебя не хватает. Где бирюзовая выше — лишнее. Наведи мышкой на любую точку.</div>
+    <div class="hint">Форма голоса по частотам. Оранжевая линия выше = у тебя не хватает. Бирюзовая выше = лишнее.</div>
     <div class="chwrap chwrap-tall"><canvas id="chSpec"></canvas></div></div>`;
 
-    // --- RESONANCES ---
+    // --- SMART RESONANCES ---
     html += `<div class="card"><h2><span class="ic">🔔</span> Резонансы голоса</h2>
-    <div class="hint">Эти частоты "торчат" в твоём вокале больше остальных — это личные резонансы голоса и микрофона. Если звучит грязно — подрежь их узким EQ.</div>`;
+    <div class="hint">Частоты, которые торчат выше нормы — резонансы голоса, микрофона или комнаты. Для каждого показаны зона, причина и точные настройки EQ для исправления.</div>`;
     if (mine.resonances.length > 0) {
-        mine.resonances.slice(0, 6).forEach(res => {
-            const cut = Math.min(res.excess * 0.4, 3.5).toFixed(1);
-            const q = Math.min(res.excess / 3, 4.5).toFixed(1);
-            html += `<span class="rtag"><span class="rfreq">${res.freq.toFixed(0)} Hz</span> <span class="rexc">+${res.excess.toFixed(1)} дБ → подрежь на -${cut}, Q ${q}</span></span>`;
+        html += `<div style="margin-top:8px">`;
+        mine.resonances.forEach(res => {
+            const priColor = res.priority === 1 ? 'var(--red)' : res.priority === 2 ? 'var(--orange)' : 'var(--yellow)';
+            const priLabel = res.priority === 1 ? '🔴 Критично' : res.priority === 2 ? '🟠 Заметно' : '🟡 Мелочь';
+            html += `<div style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.05);border-left:3px solid ${priColor};border-radius:0 10px 10px 0;padding:12px 14px;margin-bottom:6px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+          <div>
+            <span style="font-size:16px;font-weight:800;color:${priColor}">${res.freq} Hz</span>
+            <span style="font-size:10px;color:var(--text-dim);margin-left:8px">+${res.excess.toFixed(1)} дБ</span>
+          </div>
+          <span style="font-size:9px;color:${priColor}">${priLabel}</span>
+        </div>
+        <div style="font-size:11px;color:var(--text-dim);margin-bottom:4px">${res.label}</div>
+        <div style="font-size:11px;color:#888;margin-bottom:6px">${res.tip}</div>
+        <div style="font-size:12px;color:var(--text)">
+          <strong>EQ:</strong> Частота <strong>${res.freq} Hz</strong> · Gain <strong style="color:var(--red)">-${res.cutDb} dB</strong> · Q <strong>${res.Q}</strong>
+        </div>
+      </div>`;
         });
+        html += `</div>`;
     } else {
-        html += `<div class="advice-block pri-ok">Явных резонансов не обнаружено 👍</div>`;
+        html += `<div class="advice-block pri-ok">Явных резонансов нет 👍</div>`;
     }
     html += `</div>`;
 
-    // --- ENVELOPE CHART ---
-    html += `<div class="card"><h2><span class="ic">📉</span> Динамическая огибающая</h2>
-    <div class="hint">График громкости во времени. Если бирюзовая линия скачет сильнее оранжевой — компрессоры не справляются. У хорошо сжатого вокала линия ровная.</div>
+    // --- ENVELOPE ---
+    html += `<div class="card"><h2><span class="ic">📉</span> Огибающая</h2>
+    <div class="hint">Громкость во времени. Если бирюзовая скачет сильнее — компрессоры не справляются.</div>
     <div class="chwrap"><canvas id="chEnv"></canvas></div></div>`;
 
     r.innerHTML = html;
     r.style.display = 'block';
     window.scrollTo({ top: r.offsetTop - 20, behavior: 'smooth' });
-
-    // --- CHARTS ---
     buildCharts(ref, mine);
 }
 
 // ============================================================
-// CHART.JS
+// CHARTS
 // ============================================================
 function buildCharts(ref, mine) {
     const fmtFreq = f => f < 1000 ? f.toFixed(0) : (f / 1000).toFixed(1) + 'k';
     const chartFont = { family: 'Inter' };
 
-    // Spectrum
     new Chart(document.getElementById('chSpec'), {
         type: 'line',
         data: {
@@ -295,12 +326,11 @@ function buildCharts(ref, mine) {
             },
             scales: {
                 x: { ticks: { color: '#444', maxTicksLimit: 20, font: { ...chartFont, size: 10 } }, grid: { color: 'rgba(255,255,255,0.025)' }, title: { display: true, text: 'Частота (Hz)', color: '#444' } },
-                y: { ticks: { color: '#444', font: { ...chartFont, size: 10 } }, grid: { color: 'rgba(255,255,255,0.03)' }, title: { display: true, text: 'Уровень (dB, нормализовано)', color: '#444' } }
+                y: { ticks: { color: '#444', font: { ...chartFont, size: 10 } }, grid: { color: 'rgba(255,255,255,0.03)' }, title: { display: true, text: 'Уровень (dB, норм.)', color: '#444' } }
             }
         }
     });
 
-    // Envelope
     const minLen = Math.min(ref.envTime.length, mine.envTime.length);
     new Chart(document.getElementById('chEnv'), {
         type: 'line',

@@ -7,6 +7,29 @@
 function dB(v) { return 20 * Math.log10(Math.max(v, 1e-10)); }
 function dB10(v) { return 10 * Math.log10(Math.max(v, 1e-10)); }
 
+// --- Strip Silence (removes dead zones from start/end) ---
+function stripSilence(data, sr) {
+    const frameSize = Math.floor(0.02 * sr); // 20ms frames
+    const hop = Math.floor(frameSize / 2);
+    const thresh = -45; // dBFS gate
+    let firstActive = -1, lastActive = -1;
+    for (let i = 0; i + frameSize <= data.length; i += hop) {
+        let s = 0;
+        for (let j = 0; j < frameSize; j++) s += data[i + j] * data[i + j];
+        const rmsDb = dB(Math.sqrt(s / frameSize));
+        if (rmsDb > thresh) {
+            if (firstActive < 0) firstActive = i;
+            lastActive = i + frameSize;
+        }
+    }
+    if (firstActive < 0) return data; // all silence? return as-is
+    // Add 50ms padding on each side
+    const pad = Math.floor(0.05 * sr);
+    const start = Math.max(0, firstActive - pad);
+    const end = Math.min(data.length, lastActive + pad);
+    return data.slice(start, end);
+}
+
 function rms(arr) {
     let s = 0;
     for (let i = 0; i < arr.length; i++) s += arr[i] * arr[i];
