@@ -41,33 +41,60 @@ function classifyResZone(freq) {
 }
 
 /* ============================================================
-   PROCESSING FINGERPRINT (FIX 1.3: temporal decay analysis)
+   PROCESSING FINGERPRINT (v2.1: pause-based reverb detection)
    ============================================================ */
 function fingerprint(crest, dynRange, bandEnergies, data, sr) {
-    // Reverb detection via tail/body energy ratio
-    const frameSize = Math.floor(0.05 * sr);
-    const hop = Math.floor(frameSize / 2);
-    const tailBodyRatios = [];
+    // REVERB DETECTION via pause analysis
+    // Reverb = energy remains > -48 dBFS in pauses between phrases
+    // Dry/compressed vocal = pauses are truly silent (< -55 dBFS)
 
-    for (let i = 0; i + frameSize * 4 <= data.length; i += hop * 4) {
-        let bodyE = 0;
-        for (let j = 0; j < frameSize; j++) bodyE += data[i + j] ** 2;
-        let tailE = 0;
-        const tailStart = i + frameSize * 3;
-        if (tailStart + frameSize <= data.length) {
-            for (let j = 0; j < frameSize; j++) tailE += data[tailStart + j] ** 2;
-        }
-        if (bodyE > 1e-8) tailBodyRatios.push(tailE / bodyE);
+    const frameSize = Math.floor(0.02 * sr); // 20ms frames
+    const frameRmsDb = [];
+    for (let i = 0; i + frameSize <= data.length; i += frameSize) {
+        let s = 0;
+        for (let j = 0; j < frameSize; j++) s += data[i + j] ** 2;
+        frameRmsDb.push(10 * Math.log10(Math.max(s / frameSize, 1e-20)));
     }
 
-    const medianTailRatio = tailBodyRatios.length > 0
-        ? tailBodyRatios.sort((a, b) => a - b)[Math.floor(tailBodyRatios.length / 2)] : 0;
+    // Find real pauses: silence > 80ms in a row
+    const minPauseFrames = Math.ceil(0.08 * sr / frameSize);
+    const VOICE_THRESH = -38;
+    const REVERB_THRESH = -48;
 
-    const hasReverb = medianTailRatio > 0.15;
-    const reverbAmount = Math.min(1, medianTailRatio / 0.4);
+    let pauseEnergies = [];
+    let silenceRun = 0;
+    let silenceBuf = [];
+
+    for (let i = 0; i < frameRmsDb.length; i++) {
+        if (frameRmsDb[i] < VOICE_THRESH) {
+            silenceRun++;
+            silenceBuf.push(frameRmsDb[i]);
+            if (silenceRun >= minPauseFrames) {
+                pauseEnergies.push(...silenceBuf);
+                silenceBuf = [];
+            }
+        } else {
+            silenceRun = 0;
+            silenceBuf = [];
+        }
+    }
+
+    let hasReverb = false;
+    let reverbAmount = 0;
+
+    if (pauseEnergies.length > 10) {
+        pauseEnergies.sort((a, b) => b - a);
+        const top = pauseEnergies.slice(0, Math.ceil(pauseEnergies.length * 0.3));
+        const avgPauseDb = top.reduce((a, b) => a + b, 0) / top.length;
+        hasReverb = avgPauseDb > REVERB_THRESH;
+        reverbAmount = hasReverb ? Math.min(1, (avgPauseDb - REVERB_THRESH) / 12) : 0;
+    }
+    else if (frameRmsDb.length > 50) {
+        hasReverb = crest > 20 && dynRange > 18;
+        reverbAmount = hasReverb ? 0.3 : 0;
+    }
+
     const hasCompression = crest < 13 && dynRange < 9;
-
-    // Saturation: Air relative to Presence (normalized)
     const airPresenceRatio = bandEnergies[8] - bandEnergies[5];
     const hasSaturation = airPresenceRatio > -20;
 
@@ -384,12 +411,13 @@ function compare(ref, mine) {
     let tiltAdvice = '';
     if (ref.tilt && mine.tilt) {
         const tiltDiff = mine.tilt.slopeDbPerOct - ref.tilt.slopeDbPerOct;
-        if (tiltDiff < -2)
-            tiltAdvice = `Твой спектр темнее рефа на ${Math.abs(tiltDiff).toFixed(1)} дБ/окт. High-shelf EQ: +${Math.abs(tiltDiff).toFixed(1)} дБ с 4 кГц.`;
-        else if (tiltDiff > 2)
-            tiltAdvice = `Твой спектр ярче рефа на ${tiltDiff.toFixed(1)} дБ/окт. High-shelf EQ: -${tiltDiff.toFixed(1)} дБ с 4 кГц.`;
-        else
-            tiltAdvice = `Тилт спектра близок к рефу 👍`;
+        if (tiltDiff < -2) {
+            tiltAdvice = `Твой вокал звучит темнее рефа (${mine.tilt.character} vs ${ref.tilt.character}). Попробуй добавить воздуха: High-Shelf на 10–12 кГц, небольшой буст.`;
+        } else if (tiltDiff > 2) {
+            tiltAdvice = `Твой вокал ярче рефа (${mine.tilt.character} vs ${ref.tilt.character}). Попробуй убрать лишний верх: High-Shelf на 8–10 кГц, небольшой срез.`;
+        } else {
+            tiltAdvice = `Тональный баланс близок к рефу 👍`;
+        }
     }
 
     // Duration warning

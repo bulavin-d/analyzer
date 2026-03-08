@@ -1,6 +1,6 @@
 /* ============================================================
-   BULAVIN AI ANALYZER v2.0 — App Module
-   Canvas background, scan animation, all UI rendering
+   BULAVIN AI ANALYZER v2.1 — App Module
+   Canvas background, progress bar, all UI rendering
    ============================================================ */
 
 // --- State ---
@@ -16,12 +16,11 @@ const fileMine = document.getElementById('fileMine');
 const btn = document.getElementById('btnAnalyze');
 
 // ============================================================
-// BACKGROUND CANVAS — Living Sonar
+// BACKGROUND CANVAS — Minimal Sonar Rings
 // ============================================================
 const bgCanvas = document.getElementById('bgCanvas');
 const bgCtx = bgCanvas.getContext('2d');
 let bgTime = 0;
-const particles = [];
 
 function resizeBg() {
   bgCanvas.width = window.innerWidth;
@@ -30,98 +29,27 @@ function resizeBg() {
 resizeBg();
 window.addEventListener('resize', resizeBg);
 
-for (let i = 0; i < 40; i++) {
-  particles.push({
-    x: Math.random() * window.innerWidth,
-    y: Math.random() * window.innerHeight,
-    vx: (Math.random() - 0.5) * 0.3,
-    vy: (Math.random() - 0.5) * 0.2,
-    alpha: Math.random() * 0.15,
-    size: Math.random() * 1.5 + 0.5
-  });
-}
-
 function drawBg() {
   bgCtx.clearRect(0, 0, bgCanvas.width, bgCanvas.height);
-  bgTime += 0.008;
-  const cx = bgCanvas.width / 2, cy = bgCanvas.height * 0.35;
+  bgTime += 0.004;
 
-  // Grid
-  bgCtx.strokeStyle = 'rgba(255,255,255,0.015)';
-  bgCtx.lineWidth = 1;
-  for (let y = 0; y < bgCanvas.height; y += 60) {
-    bgCtx.beginPath(); bgCtx.moveTo(0, y); bgCtx.lineTo(bgCanvas.width, y); bgCtx.stroke();
+  const cx = bgCanvas.width / 2;
+  const cy = bgCanvas.height * 0.3;
+
+  for (let i = 0; i < 4; i++) {
+    const phase = (bgTime * 0.3 + i * 0.8) % 1;
+    const r = phase * 280;
+    const alpha = (1 - phase) * 0.015;
+    bgCtx.beginPath();
+    bgCtx.arc(cx, cy, r, 0, Math.PI * 2);
+    bgCtx.strokeStyle = `rgba(0,212,255,${alpha})`;
+    bgCtx.lineWidth = 1;
+    bgCtx.stroke();
   }
-
-  // Rings
-  for (let i = 0; i < 5; i++) {
-    const phase = (bgTime * 0.4 + i * 0.7) % 1;
-    const r = phase * 350;
-    bgCtx.beginPath(); bgCtx.arc(cx, cy, r, 0, Math.PI * 2);
-    bgCtx.strokeStyle = `rgba(0,212,255,${(1 - phase) * 0.04})`;
-    bgCtx.lineWidth = 1; bgCtx.stroke();
-  }
-
-  // Particles
-  particles.forEach(p => {
-    p.x += p.vx; p.y += p.vy;
-    if (p.x < 0 || p.x > bgCanvas.width) p.vx *= -1;
-    if (p.y < 0 || p.y > bgCanvas.height) p.vy *= -1;
-    bgCtx.fillStyle = `rgba(0,212,255,${p.alpha})`;
-    bgCtx.fillRect(p.x, p.y, p.size, p.size);
-  });
-
-  // Wave line
-  const waveY = bgCanvas.height * 0.8;
-  bgCtx.beginPath();
-  for (let x = 0; x < bgCanvas.width; x++) {
-    const t = x / bgCanvas.width;
-    const y = waveY + Math.sin(t * 8 + bgTime * 2) * 2 + Math.sin(t * 20 + bgTime * 3) * 0.8;
-    if (x === 0) bgCtx.moveTo(x, y); else bgCtx.lineTo(x, y);
-  }
-  bgCtx.strokeStyle = 'rgba(0,212,255,0.08)'; bgCtx.lineWidth = 1; bgCtx.stroke();
 
   requestAnimationFrame(drawBg);
 }
 drawBg();
-
-// ============================================================
-// SCAN ANIMATION
-// ============================================================
-let scanX = 0, scanRunning = false;
-const scanCanvas = document.getElementById('scanCanvas');
-const scanCtx = scanCanvas.getContext('2d');
-
-function animateScan() {
-  if (!scanRunning) return;
-  const W = scanCanvas.width, H = scanCanvas.height;
-  scanCtx.clearRect(0, 0, W, H);
-
-  // Grid
-  scanCtx.strokeStyle = 'rgba(0,212,255,0.04)'; scanCtx.lineWidth = 1;
-  for (let y = 10; y < H; y += 16) { scanCtx.beginPath(); scanCtx.moveTo(0, y); scanCtx.lineTo(W, y); scanCtx.stroke(); }
-
-  // Scanner line
-  scanX = (scanX + 2) % W;
-  const grad = scanCtx.createLinearGradient(scanX - 60, 0, scanX, 0);
-  grad.addColorStop(0, 'rgba(0,212,255,0)'); grad.addColorStop(1, 'rgba(0,212,255,0.6)');
-  scanCtx.fillStyle = grad; scanCtx.fillRect(scanX - 60, 0, 60, H);
-  scanCtx.strokeStyle = 'rgba(0,212,255,0.8)'; scanCtx.beginPath(); scanCtx.moveTo(scanX, 0); scanCtx.lineTo(scanX, H); scanCtx.stroke();
-
-  // Data dots
-  for (let i = 0; i < 3; i++) {
-    scanCtx.fillStyle = `rgba(0,212,255,${Math.random() * 0.3})`;
-    scanCtx.fillRect(Math.random() * scanX, Math.random() * H, 1, 1);
-  }
-  requestAnimationFrame(animateScan);
-}
-
-function addScanStep(text, done) {
-  const el = document.createElement('div');
-  el.className = 'scan-step' + (done ? ' done' : '');
-  el.innerHTML = `<span class="step-indicator">${done ? '✓' : '◉'}</span><span>${text}</span>`;
-  document.getElementById('scanSteps').appendChild(el);
-}
 
 // ============================================================
 // MINI WAVEFORM
@@ -229,83 +157,64 @@ setupDrop(dropMine, fileMine, false);
 btn.addEventListener('click', () => { if (refBuffer && mineBuffer) runAnalysis(); });
 
 // ============================================================
+// SCAN STEP HELPER
+// ============================================================
+function addScanStep(text, done) {
+  const el = document.createElement('div');
+  el.className = 'scan-step' + (done ? ' done' : '');
+  el.innerHTML = `<span class="step-indicator">${done ? '✓' : '◉'}</span><span>${text}</span>`;
+  document.getElementById('scanSteps').appendChild(el);
+}
+
+// ============================================================
 // ANALYSIS RUNNER
 // ============================================================
 async function runAnalysis() {
   btn.disabled = true; btn.className = 'analyze-btn scanning';
   btn.querySelector('.btn-text').textContent = 'АНАЛИЗ...';
-  document.getElementById('statusDot').className = 'status-dot analyzing';
-  document.getElementById('statusText').textContent = 'АНАЛИЗ';
 
   const prog = document.getElementById('progress');
   const stepsEl = document.getElementById('scanSteps');
   stepsEl.innerHTML = '';
+  document.getElementById('scanBarFill').style.width = '0%';
   prog.style.display = 'flex';
   document.getElementById('results').style.display = 'none';
-  scanRunning = true; animateScan();
 
   await sleep(60);
   addScanStep('Обрезка тишины и анализ референса...', false);
   await sleep(20);
   const refResult = analyzeTrack(refBuffer);
+  document.getElementById('scanBarFill').style.width = '35%';
   stepsEl.lastChild.className = 'scan-step done';
   stepsEl.lastChild.querySelector('.step-indicator').textContent = '✓';
 
   addScanStep('Анализ твоего вокала...', false);
   await sleep(20);
   const mineResult = analyzeTrack(mineBuffer);
+  document.getElementById('scanBarFill').style.width = '70%';
   stepsEl.lastChild.className = 'scan-step done';
   stepsEl.lastChild.querySelector('.step-indicator').textContent = '✓';
 
   addScanStep('Сравнение и генерация рекомендаций...', false);
   await sleep(20);
   const comp = compare(refResult, mineResult);
+  document.getElementById('scanBarFill').style.width = '100%';
   stepsEl.lastChild.className = 'scan-step done';
   stepsEl.lastChild.querySelector('.step-indicator').textContent = '✓';
 
   addScanStep('Готово!', true);
   await sleep(300);
-  scanRunning = false;
 
   renderResults(refResult, mineResult, comp);
   prog.style.display = 'none';
   btn.className = 'analyze-btn ready';
   btn.querySelector('.btn-text').textContent = 'СКАНИРОВАТЬ ЗАНОВО';
   btn.disabled = false;
-  document.getElementById('statusDot').className = 'status-dot';
-  document.getElementById('statusText').textContent = 'АНАЛИЗ ЗАВЕРШЁН';
 }
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-// --- Score ring ---
-function animateScoreRing(canvas, score, color) {
-  const ctx = canvas.getContext('2d');
-  const W = canvas.width, H = canvas.height;
-  const cx = W / 2, cy = H / 2, r = W * 0.4;
-  let current = 0;
-  const target = score / 100;
-
-  function frame() {
-    ctx.clearRect(0, 0, W, H);
-    current += (target - current) * 0.06;
-    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2);
-    ctx.strokeStyle = 'rgba(255,255,255,0.05)'; ctx.lineWidth = 6; ctx.stroke();
-
-    ctx.beginPath(); ctx.arc(cx, cy, r, -Math.PI / 2, -Math.PI / 2 + current * Math.PI * 2);
-    ctx.strokeStyle = color; ctx.lineWidth = 6; ctx.lineCap = 'round';
-    ctx.shadowColor = color; ctx.shadowBlur = 12; ctx.stroke();
-
-    const ea = -Math.PI / 2 + current * Math.PI * 2;
-    ctx.beginPath(); ctx.arc(cx + r * Math.cos(ea), cy + r * Math.sin(ea), 4, 0, Math.PI * 2);
-    ctx.fillStyle = color; ctx.shadowBlur = 16; ctx.fill();
-    ctx.shadowBlur = 0;
-
-    if (Math.abs(current - target) > 0.001) requestAnimationFrame(frame);
-  }
-  frame();
-}
-
+// --- Score number animation ---
 function animateNumber(el, from, to, dur, suffix) {
   suffix = suffix || '';
   const start = performance.now();
@@ -320,7 +229,7 @@ function animateNumber(el, from, to, dur, suffix) {
 
 // --- FP Badge ---
 function fpBadge(fp) {
-  const map = { dry: ['🎤 Сухой', '#00D4FF'], lightly: ['🎛️ Лёгкая обработка', '#FF9500'], processed: ['⚙️ Обработан', '#FF9500'], wet: ['🌊 С ревербом', '#BF5FFF'] };
+  const map = { dry: ['СУХОЙ', '#00D4FF'], lightly: ['ОБРАБОТАН', '#FF9500'], processed: ['ОБРАБОТАН', '#FF9500'], wet: ['С РЕВЕРБОМ', '#BF5FFF'] };
   const [text, color] = map[fp.level] || map.dry;
   return `<span class="fp-badge" style="color:${color};border-color:${color}">${text}</span>`;
 }
@@ -335,13 +244,14 @@ function renderResults(ref, mine, comp) {
 
   // --- CLIPPING WARNING ---
   if (mine.clipping && mine.clipping.isClipping) {
-    html += `<div class="warn-banner">⚠️ ${mine.clipping.advice}</div>`;
+    html += `<div class="warn-banner" style="color:rgba(255,59,92,0.7);background:rgba(255,59,92,0.04);border-color:rgba(255,59,92,0.12)">${mine.clipping.advice}</div>`;
   }
 
   // --- PROCESSING BADGES ---
-  html += `<div class="card"><div class="card-body" style="text-align:center;padding:12px 18px">
-        <span style="font-size:11px;color:rgba(255,255,255,0.3);font-family:'DM Mono',monospace;letter-spacing:0.1em">РЕФЕРЕНС</span> ${fpBadge(ref.fp)}
-        <span style="margin-left:20px;font-size:11px;color:rgba(255,255,255,0.3);font-family:'DM Mono',monospace;letter-spacing:0.1em">ТВОЙ ВОКАЛ</span> ${fpBadge(mine.fp)}
+  html += `<div class="card"><div class="card-body badges-row">
+        <span class="badge-label">РЕФЕРЕНС</span> ${fpBadge(ref.fp)}
+        <span class="badge-sep"></span>
+        <span class="badge-label">ТВОЙ ВОКАЛ</span> ${fpBadge(mine.fp)}
     </div></div>`;
 
   // --- DURATION WARNING ---
@@ -351,23 +261,28 @@ function renderResults(ref, mine, comp) {
 
   // --- DRY vs WET BANNER ---
   if (ref.fp.hasReverb && mine.fp.isDry) {
-    html += `<div class="warn-banner" style="border-left-color:#BF5FFF;background:rgba(191,95,255,0.06);color:#BF5FFF">
+    html += `<div class="warn-banner" style="color:rgba(191,95,255,0.7);background:rgba(191,95,255,0.04);border-color:rgba(191,95,255,0.12)">
             Референс содержит реверб (сила: ${(ref.fp.reverbAmount * 100).toFixed(0)}%). Сравнение выполнено с учётом этого.
         </div>`;
   }
 
   // --- SCORE ---
   html += `<div class="card">
-        <div class="card-header"><div class="card-title"><div class="card-title-icon">◎</div>MATCH SCORE</div><span style="font-size:9px;color:rgba(255,255,255,0.2);font-family:'DM Mono',monospace">тональный баланс</span></div>
-        <div class="score-body">
-            <div class="score-ring-wrap"><canvas id="scoreRing" width="140" height="140"></canvas><div class="score-number" id="scoreNum">--</div></div>
-            <div class="score-verdict" id="scoreVerdict">${comp.score >= 85 ? 'Звук близок к референсу' : comp.score >= 60 ? 'Есть что подтянуть' : 'Значительные отличия'}</div>
-            <div class="score-scale"><div class="scale-track"><div class="scale-fill" id="scaleFill" style="width:0%"></div><div class="scale-cursor" id="scaleCursor" style="left:0%"></div></div>
-            <div class="scale-labels"><span>Далеко</span><span>Норма</span><span>Идеально</span></div></div>
-        </div></div>`;
+        <div class="card-header"><div class="card-title"><div class="card-title-icon"></div>MATCH SCORE</div></div>
+        <div class="card-body score-layout">
+            <div class="score-left">
+                <div class="score-number" id="scoreNum" style="color:${sColor}">--</div>
+                <div class="score-of">/ 100</div>
+            </div>
+            <div class="score-right">
+                <div class="score-verdict">${comp.score >= 85 ? 'Звук близок к референсу' : comp.score >= 60 ? 'Есть что подтянуть' : 'Значительные отличия'}</div>
+                <div class="score-desc">Насколько твой спектр совпадает с референсом по вокальным зонам</div>
+            </div>
+        </div>
+    </div>`;
 
   // --- PRIORITIES ---
-  html += `<div class="card"><div class="card-header"><div class="card-title"><div class="card-title-icon">🎯</div>ПРИОРИТЕТЫ</div></div><div class="card-body">`;
+  html += `<div class="card"><div class="card-header"><div class="card-title"><div class="card-title-icon"></div>ПРИОРИТЕТЫ</div></div><div class="card-body">`;
   if (comp.priorities.length === 0)
     html += `<div class="advice-block" style="border-left-color:var(--green)">Все зоны в норме — звук близок к референсу 🔥</div>`;
   else
@@ -375,7 +290,7 @@ function renderResults(ref, mine, comp) {
   html += `</div></div>`;
 
   // --- LUFS ---
-  html += `<div class="card"><div class="card-header"><div class="card-title"><div class="card-title-icon">📏</div>LOUDNESS (LUFS)</div></div><div class="card-body">
+  html += `<div class="card"><div class="card-header"><div class="card-title"><div class="card-title-icon"></div>LOUDNESS (LUFS)</div></div><div class="card-body">
         <div class="card-hint">LUFS — стандарт громкости для стриминга. Spotify/Apple Music таргетируют −14 LUFS. LRA — разброс громкости.</div>
         <div class="stats-grid">
             <div class="stat-box"><div class="stat-label">Твой LUFS-I</div><div class="stat-value" style="color:var(--cyan)">${mine.lufs.lufsI}</div><div class="stat-sub">LUFS</div></div>
@@ -390,7 +305,7 @@ function renderResults(ref, mine, comp) {
   html += `</div></div>`;
 
   // --- DYNAMICS ---
-  html += `<div class="card"><div class="card-header"><div class="card-title"><div class="card-title-icon">📊</div>ДИНАМИКА</div></div><div class="card-body">
+  html += `<div class="card"><div class="card-header"><div class="card-title"><div class="card-title-icon"></div>ДИНАМИКА</div></div><div class="card-body">
         <div class="card-hint">Crest = пики vs среднее. Dynamic Range = P5–P95 (без выбросов).</div>
         <div class="stats-grid">
             <div class="stat-box"><div class="stat-label">Crest Factor</div><div class="stat-value">${mine.crest.toFixed(1)}</div><div class="stat-sub">Реф: ${ref.crest.toFixed(1)} dB</div></div>
@@ -398,7 +313,6 @@ function renderResults(ref, mine, comp) {
             <div class="stat-box"><div class="stat-label">Active RMS</div><div class="stat-value">${mine.activeRmsDb.toFixed(1)}</div><div class="stat-sub">Реф: ${ref.activeRmsDb.toFixed(1)} dBFS</div></div>
             <div class="stat-box"><div class="stat-label">Peak</div><div class="stat-value">${mine.peakDb.toFixed(1)}</div><div class="stat-sub">Реф: ${ref.peakDb.toFixed(1)} dBFS</div></div>
         </div>`;
-  // Transients
   if (mine.transients) {
     html += `<div class="stats-grid" style="margin-top:4px">
             <div class="stat-box"><div class="stat-label">Атака вокала</div><div class="stat-value">${mine.transients.medianAttackMs}</div><div class="stat-sub">мс (медиана)</div></div>
@@ -407,11 +321,11 @@ function renderResults(ref, mine, comp) {
         </div>`;
   }
   html += `<div class="advice-block">${comp.compAdvice}</div>`;
-  html += `<div class="advice-block" style="border-left-color:#BF5FFF">${comp.dynAdvice}</div>`;
+  html += `<div class="advice-block" style="border-left-color:rgba(191,95,255,0.3);background:rgba(191,95,255,0.03)">${comp.dynAdvice}</div>`;
   html += `</div></div>`;
 
   // --- FUNDAMENTAL TONE ---
-  html += `<div class="card"><div class="card-header"><div class="card-title"><div class="card-title-icon">🎵</div>ОСНОВНОЙ ТОН</div></div><div class="card-body">
+  html += `<div class="card"><div class="card-header"><div class="card-title"><div class="card-title-icon"></div>ОСНОВНОЙ ТОН</div></div><div class="card-body">
         <div class="card-hint">Самая низкая рабочая частота. HPF ставь ниже — остальное мусор.</div>
         <div class="stats-grid">`;
   if (mine.fundamental) {
@@ -430,35 +344,34 @@ function renderResults(ref, mine, comp) {
 
   // --- PITCH STABILITY ---
   if (mine.pitchData) {
-    html += `<div class="card"><div class="card-header"><div class="card-title"><div class="card-title-icon">🎼</div>СТАБИЛЬНОСТЬ ПИТЧА</div></div><div class="card-body">
-            <div class="card-hint">Насколько ровно держишь ноту. 100 = идеально, < 50 = нужна автотюн-коррекция.</div>
+    html += `<div class="card"><div class="card-header"><div class="card-title"><div class="card-title-icon"></div>СТАБИЛЬНОСТЬ ПИТЧА</div></div><div class="card-body">
+            <div class="card-hint">Стабильность питча твоего вокала. ±15 центов = хорошо. ±30+ = нужна коррекция. Небольшие различия между треками в обработке — это нормально.</div>
             <div class="stats-grid">
                 <div class="stat-box"><div class="stat-label">Стабильность</div><div class="stat-value" style="color:${mine.pitchData.stabilityScore >= 70 ? 'var(--green)' : mine.pitchData.stabilityScore >= 40 ? 'var(--amber)' : 'var(--red)'}">${mine.pitchData.stabilityScore}</div><div class="stat-sub">/100</div></div>
                 <div class="stat-box"><div class="stat-label">Разброс</div><div class="stat-value">±${mine.pitchData.stdCents}</div><div class="stat-sub">центов</div></div>
                 <div class="stat-box"><div class="stat-label">Медиана</div><div class="stat-value">${mine.pitchData.medianFreq}</div><div class="stat-sub">Hz</div></div>
             </div>`;
     if (mine.pitchData.stabilityScore < 70) {
-      html += `<div class="advice-block" style="border-left-color:var(--amber)">Разброс ±${mine.pitchData.stdCents} центов. ${mine.pitchData.stabilityScore < 40 ? 'Нужна коррекция в Newtone/Melodyne.' : 'Лёгкая автотюн-коррекция улучшит звучание.'}</div>`;
+      html += `<div class="advice-block" style="border-left-color:rgba(255,149,0,0.3);background:rgba(255,149,0,0.03)">Разброс ±${mine.pitchData.stdCents} центов. ${mine.pitchData.stabilityScore < 40 ? 'Нужна коррекция в Newtone/Melodyne.' : 'Лёгкая автотюн-коррекция улучшит звучание.'}</div>`;
     }
-    // Pitch chart
     html += `<div class="chart-wrap" style="height:160px;margin-top:10px"><canvas id="chPitch"></canvas></div>`;
     html += `</div></div>`;
   }
 
   // --- HARSHNESS ---
-  html += `<div class="card"><div class="card-header"><div class="card-title"><div class="card-title-icon">⚡</div>ЯРКОСТЬ</div></div><div class="card-body">
+  html += `<div class="card"><div class="card-header"><div class="card-title"><div class="card-title-icon"></div>ЯРКОСТЬ</div></div><div class="card-body">
         <div class="card-hint">Индекс 4–10 кГц. >65 = де-эссер нужен. <35 = тускло.</div>
         <div class="stats-grid">
             <div class="stat-box"><div class="stat-label">Твой индекс</div><div class="stat-value" style="color:${mine.harshness.index > 65 ? 'var(--red)' : mine.harshness.index > 45 ? 'var(--amber)' : 'var(--green)'}">${mine.harshness.index}</div><div class="stat-sub">${mine.harshness.index > 65 ? 'Агрессивно' : mine.harshness.index > 45 ? 'Норма' : 'Тускло'}</div></div>
             <div class="stat-box"><div class="stat-label">Де-эссер</div><div class="stat-value" style="color:var(--cyan)">${mine.harshness.deesserFreq}</div><div class="stat-sub">Hz</div></div>
             <div class="stat-box"><div class="stat-label">Реф индекс</div><div class="stat-value" style="color:var(--amber)">${ref.harshness.index}</div><div class="stat-sub">${ref.harshness.index > 65 ? 'Агрессивно' : ref.harshness.index > 45 ? 'Норма' : 'Тускло'}</div></div>
         </div>
-        <div class="advice-block" style="border-left-color:var(--red)">${comp.harshAdvice}</div>
+        <div class="advice-block" style="border-left-color:rgba(255,59,92,0.3);background:rgba(255,59,92,0.03)">${comp.harshAdvice}</div>
     </div></div>`;
 
   // --- SPECTRAL TILT ---
   if (mine.tilt && ref.tilt) {
-    html += `<div class="card"><div class="card-header"><div class="card-title"><div class="card-title-icon">📐</div>СПЕКТРАЛЬНЫЙ ТИЛТ</div></div><div class="card-body">
+    html += `<div class="card"><div class="card-header"><div class="card-title"><div class="card-title-icon"></div>СПЕКТРАЛЬНЫЙ ТИЛТ</div></div><div class="card-body">
             <div class="card-hint">Наклон спектра в дБ/октаву. Нейтральный ≈ −3. Тёмный: −6. Яркий: −1.</div>
             <div class="stats-grid">
                 <div class="stat-box"><div class="stat-label">Твой тилт</div><div class="stat-value">${mine.tilt.slopeDbPerOct}</div><div class="stat-sub">дБ/окт · ${mine.tilt.character}</div></div>
@@ -469,7 +382,7 @@ function renderResults(ref, mine, comp) {
   }
 
   // --- NOISE FLOOR ---
-  html += `<div class="card"><div class="card-header"><div class="card-title"><div class="card-title-icon">🔇</div>ШУМ</div></div><div class="card-body">
+  html += `<div class="card"><div class="card-header"><div class="card-title"><div class="card-title-icon"></div>ШУМ</div></div><div class="card-body">
         <div class="stats-grid">
             <div class="stat-box"><div class="stat-label">Noise Floor</div><div class="stat-value" style="color:${mine.noise.noiseLevel > -50 ? 'var(--red)' : mine.noise.noiseLevel > -60 ? 'var(--amber)' : 'var(--green)'}">${mine.noise.noiseLevel}</div><div class="stat-sub">dBFS</div></div>
             <div class="stat-box"><div class="stat-label">SNR</div><div class="stat-value">${mine.noise.snr}</div><div class="stat-sub">dB</div></div>
@@ -479,15 +392,15 @@ function renderResults(ref, mine, comp) {
 
   // --- STEREO ---
   if (mine.isStereo || ref.isStereo) {
-    html += `<div class="card"><div class="card-header"><div class="card-title"><div class="card-title-icon">🔄</div>СТЕРЕО</div></div><div class="card-body">`;
+    html += `<div class="card"><div class="card-header"><div class="card-title"><div class="card-title-icon"></div>СТЕРЕО</div></div><div class="card-body">`;
     if (mine.stereo) {
       const pOk = mine.stereo.avgCorr > 0.3;
       html += `<div class="stats-grid">
-                <div class="stat-box"><div class="stat-label">Корреляция</div><div class="stat-value" style="color:${pOk ? 'var(--green)' : 'var(--red)'}">${mine.stereo.avgCorr.toFixed(2)}</div><div class="stat-sub">${pOk ? 'Моно-совместим' : '⚠️ Фазовые конфликты'}</div></div>
+                <div class="stat-box"><div class="stat-label">Корреляция</div><div class="stat-value" style="color:${pOk ? 'var(--green)' : 'var(--red)'}">${mine.stereo.avgCorr.toFixed(2)}</div><div class="stat-sub">${pOk ? 'Моно-совместим' : 'Фазовые конфликты'}</div></div>
                 <div class="stat-box"><div class="stat-label">Ширина</div><div class="stat-value">${(mine.stereo.width * 100).toFixed(0)}</div><div class="stat-sub">%</div></div>
             </div>`;
       if (mine.stereo.phaseIssuePercent > 5)
-        html += `<div class="advice-block" style="border-left-color:var(--red)">⚠️ ${mine.stereo.phaseIssuePercent.toFixed(0)}% фреймов с фазовыми конфликтами.</div>`;
+        html += `<div class="advice-block" style="border-left-color:rgba(255,59,92,0.3);background:rgba(255,59,92,0.03)">${mine.stereo.phaseIssuePercent.toFixed(0)}% фреймов с фазовыми конфликтами.</div>`;
     } else {
       html += `<div class="advice-block" style="border-left-color:var(--green)">Моно — фазовых проблем нет 👍</div>`;
     }
@@ -495,7 +408,7 @@ function renderResults(ref, mine, comp) {
   }
 
   // --- BANDS ---
-  html += `<div class="card"><div class="card-header"><div class="card-title"><div class="card-title-icon">🎚️</div>ЧАСТОТНЫЕ ЗОНЫ</div><span style="font-size:8px;color:rgba(255,255,255,0.15);font-family:'DM Mono',monospace">НОРМАЛИЗОВАНО</span></div><div class="card-body">
+  html += `<div class="card"><div class="card-header"><div class="card-title"><div class="card-title-icon"></div>ЧАСТОТНЫЕ ЗОНЫ</div><span style="font-size:8px;color:rgba(255,255,255,0.15);font-family:'Space Mono',monospace">НОРМАЛИЗОВАНО</span></div><div class="card-body">
         <div class="card-hint">Громкость выровнена. Сравнивается форма спектра. Sub/Air весят меньше.</div>`;
   comp.bandDiffs.forEach(b => {
     const dCol = Math.abs(b.diff) < 4 ? 'var(--green)' : (b.diff > 0 ? 'var(--cyan)' : 'var(--amber)');
@@ -516,25 +429,24 @@ function renderResults(ref, mine, comp) {
   html += `</div></div>`;
 
   // --- SPECTRUM ---
-  html += `<div class="card"><div class="card-header"><div class="card-title"><div class="card-title-icon">📈</div>СПЕКТР</div></div><div class="card-body">
+  html += `<div class="card"><div class="card-header"><div class="card-title"><div class="card-title-icon"></div>СПЕКТР</div></div><div class="card-body">
         <div class="card-hint">Форма голоса. Оранжевая = реф. Бирюзовая = ты.</div>
         <div class="chart-wrap chart-wrap-tall"><canvas id="chSpec"></canvas></div>
     </div></div>`;
 
   // --- RESONANCES ---
-  html += `<div class="card"><div class="card-header"><div class="card-title"><div class="card-title-icon">🔔</div>РЕЗОНАНСЫ</div></div><div class="card-body">
-        <div class="card-hint">Торчащие частоты — резонансы голоса, микрофона, комнаты. Для каждого: зона, причина, точный EQ.</div>`;
+  html += `<div class="card"><div class="card-header"><div class="card-title"><div class="card-title-icon"></div>РЕЗОНАНСЫ</div></div><div class="card-body">
+        <div class="card-hint">Торчащие частоты — резонансы голоса, микрофона, комнаты. Для каждого: зона, EQ.</div>`;
   if (mine.resonances.length > 0) {
     mine.resonances.forEach(res => {
       const pc = res.priority === 1 ? 'var(--red)' : res.priority === 2 ? 'var(--amber)' : 'rgba(0,212,255,0.6)';
       const pl = res.priority === 1 ? 'КРИТИЧНО' : res.priority === 2 ? 'ЗАМЕТНО' : 'МЕЛОЧЬ';
-      html += `<div class="res-item" style="border-left:3px solid ${pc}">
+      html += `<div class="res-item" style="border-left-color:${pc}">
                 <div class="res-header">
                     <div><span class="res-freq" style="color:${pc}">${res.freq} Hz</span><span class="res-excess">+${res.excess.toFixed(1)} dB</span></div>
                     <span class="res-pri" style="color:${pc}">${pl}</span>
                 </div>
                 <div class="res-zone">${res.label}</div>
-                <div class="res-tip">${res.tip}</div>
                 <div class="res-eq">EQ: <strong>${res.freq} Hz</strong> · Gain <strong style="color:var(--red)">−${res.cutDb} dB</strong> · Q <strong>${res.Q}</strong></div>
             </div>`;
     });
@@ -544,32 +456,26 @@ function renderResults(ref, mine, comp) {
   html += `</div></div>`;
 
   // --- ENVELOPE CHART ---
-  html += `<div class="card"><div class="card-header"><div class="card-title"><div class="card-title-icon">📉</div>ОГИБАЮЩАЯ</div></div><div class="card-body">
+  html += `<div class="card"><div class="card-header"><div class="card-title"><div class="card-title-icon"></div>ОГИБАЮЩАЯ</div></div><div class="card-body">
         <div class="card-hint">Громкость во времени. Ровная линия = хорошая компрессия.</div>
         <div class="chart-wrap"><canvas id="chEnv"></canvas></div>
     </div></div>`;
 
   // --- DAW EXPORT ---
-  html += `<div class="card"><div class="card-header"><div class="card-title"><div class="card-title-icon">📋</div>ЭКСПОРТ НАСТРОЕК</div></div><div class="card-body">
+  html += `<div class="card"><div class="card-header"><div class="card-title"><div class="card-title-icon"></div>ЭКСПОРТ НАСТРОЕК</div></div><div class="card-body">
         <div class="card-hint">Скопируй и вставь рекомендованные настройки в любую DAW.</div>
         <button class="copy-btn" id="copySettingsBtn" onclick="copySettings()"><span>◎</span> СКОПИРОВАТЬ НАСТРОЙКИ</button>
-        <pre id="settingsText" style="display:none;font-family:'DM Mono',monospace;font-size:10px;color:var(--text-secondary);background:var(--bg-overlay);padding:12px;border-radius:8px;margin-top:8px;white-space:pre-wrap;border:1px solid var(--border-subtle)">${generateSettingsText(ref, mine, comp)}</pre>
+        <pre id="settingsText" style="display:none;font-family:'Space Mono',monospace;font-size:10px;color:var(--text-secondary);background:rgba(255,255,255,0.02);padding:12px;border-radius:8px;margin-top:8px;white-space:pre-wrap;border:1px solid rgba(255,255,255,0.05)">${generateSettingsText(ref, mine, comp)}</pre>
     </div></div>`;
 
   r.innerHTML = html;
   r.style.display = 'block';
   window.scrollTo({ top: r.offsetTop - 20, behavior: 'smooth' });
 
-  // Animate score
+  // Animate score number
   setTimeout(() => {
-    const scoreRing = document.getElementById('scoreRing');
-    if (scoreRing) animateScoreRing(scoreRing, comp.score, sColor);
     const scoreNum = document.getElementById('scoreNum');
     if (scoreNum) animateNumber(scoreNum, 0, comp.score, 1200);
-    const scaleFill = document.getElementById('scaleFill');
-    const scaleCursor = document.getElementById('scaleCursor');
-    if (scaleFill) scaleFill.style.width = comp.score + '%';
-    if (scaleCursor) scaleCursor.style.left = comp.score + '%';
   }, 200);
 
   buildCharts(ref, mine);
@@ -581,7 +487,6 @@ function renderResults(ref, mine, comp) {
 function generateSettingsText(ref, mine, comp) {
   let t = '== BULAVIN AI ANALYZER v2.0 — Настройки ==\n\n';
 
-  // EQ
   const eqBands = comp.bandDiffs.filter(b => b.severity !== 'ok' && Math.abs(b.diff) >= 4 && Math.abs(b.diff) < 12);
   if (eqBands.length > 0) {
     t += '[Parametric EQ]\n';
@@ -593,7 +498,6 @@ function generateSettingsText(ref, mine, comp) {
     t += '\n';
   }
 
-  // Resonance cuts
   if (mine.resonances.length > 0) {
     t += '[Resonance EQ Cuts]\n';
     mine.resonances.slice(0, 4).forEach(r => {
@@ -602,7 +506,6 @@ function generateSettingsText(ref, mine, comp) {
     t += '\n';
   }
 
-  // Compressor
   if (mine.transients) {
     t += '[Compressor]\n';
     t += `• Attack: ${mine.transients.compAttackMs} мс\n`;
@@ -610,20 +513,17 @@ function generateSettingsText(ref, mine, comp) {
     t += `• Ratio: ${mine.crest > 18 ? '4:1' : '3:1'}\n\n`;
   }
 
-  // Noise gate
   if (mine.noise.noiseLevel > -60) {
     t += '[Noise Gate]\n';
     t += `• Threshold: ${(mine.noise.noiseLevel + 6)} dBFS\n`;
     t += `• Attack: 2 мс, Release: 80 мс\n\n`;
   }
 
-  // HPF
   if (mine.fundamental) {
     const hpf = Math.round(mine.fundamental.freq * 0.6);
     t += `[High-Pass Filter]\n• Частота: ${hpf} Hz\n\n`;
   }
 
-  // LUFS
   t += `[Loudness]\n• Текущий: ${mine.lufs.lufsI} LUFS-I\n• Цель (Spotify): −14.0 LUFS\n`;
   const diff = -14 - mine.lufs.lufsI;
   if (diff > 2) t += `• Нужно: +${diff.toFixed(1)} LU\n`;
@@ -647,11 +547,10 @@ function copySettings() {
 // ============================================================
 function buildCharts(ref, mine) {
   const fmtFreq = f => f < 1000 ? f.toFixed(0) : (f / 1000).toFixed(1) + 'k';
-  const chartFont = { family: 'DM Mono, monospace' };
+  const chartFont = { family: 'Space Mono, monospace' };
   const gridColor = 'rgba(255,255,255,0.03)';
   const tickColor = 'rgba(255,255,255,0.18)';
 
-  // Spectrum
   new Chart(document.getElementById('chSpec'), {
     type: 'line',
     data: {
@@ -675,7 +574,6 @@ function buildCharts(ref, mine) {
     }
   });
 
-  // Envelope
   const minLen = Math.min(ref.envTime.length, mine.envTime.length);
   new Chart(document.getElementById('chEnv'), {
     type: 'line',
@@ -697,7 +595,6 @@ function buildCharts(ref, mine) {
     }
   });
 
-  // Pitch chart (if available)
   const pitchCanvas = document.getElementById('chPitch');
   if (pitchCanvas && mine.pitchData) {
     new Chart(pitchCanvas, {

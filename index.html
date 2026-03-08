@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link
-        href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=DM+Sans:wght@300;400;500;600&display=swap"
+        href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600&family=Space+Mono:wght@400;700&display=swap"
         rel="stylesheet">
     <link rel="stylesheet" href="css/style.css">
 </head>
@@ -32,10 +32,6 @@
                 <span class="logo-text">BULAVIN</span>
                 <span class="logo-sub">AI ANALYZER</span>
             </div>
-            <div class="status-bar" id="statusBar">
-                <span class="status-dot" id="statusDot"></span>
-                <span class="status-text" id="statusText">СИСТЕМА ГОТОВА</span>
-            </div>
             <div class="version-tag">v2.0 PRO</div>
         </div>
     </header>
@@ -43,14 +39,13 @@
     <main class="main">
         <section class="upload-section">
             <div class="upload-hint">
-                <div class="hint-step"><span class="step-num">01</span><span class="step-text">Брось
-                        референс<br><small>Чужой вокал который нравится</small></span></div>
+                <div class="hint-step"><span class="step-num">01</span><span class="step-text">Брось референс</span>
+                </div>
                 <div class="hint-arrow">→</div>
-                <div class="hint-step"><span class="step-num">02</span><span class="step-text">Брось свой
-                        вокал<br><small>Твоя запись из будки</small></span></div>
+                <div class="hint-step"><span class="step-num">02</span><span class="step-text">Брось свой вокал</span>
+                </div>
                 <div class="hint-arrow">→</div>
-                <div class="hint-step"><span class="step-num">03</span><span class="step-text">Нажми
-                        анализ<br><small>Получи настройки</small></span></div>
+                <div class="hint-step"><span class="step-num">03</span><span class="step-text">Нажми анализ</span></div>
             </div>
 
             <div class="drops">
@@ -109,7 +104,9 @@
         </section>
 
         <div class="scan-progress" id="progress" style="display:none">
-            <canvas id="scanCanvas" width="500" height="80"></canvas>
+            <div class="scan-bar-wrap">
+                <div class="scan-bar-fill" id="scanBarFill"></div>
+            </div>
             <div class="scan-steps" id="scanSteps"></div>
         </div>
 

@@ -155,6 +155,41 @@ function autocorrelate(data, sr, minFreq, maxFreq) {
         if (corr > bestCorr) { bestCorr = corr; bestLag = lag; }
     }
     if (bestCorr < 0.3) return null;
+
+    // OCTAVE CORRECTION: check subharmonic (lag × 2 = octave lower)
+    const doubleLag = bestLag * 2;
+    if (doubleLag <= Math.min(maxLag, N / 2)) {
+        let sum2 = 0, normA2 = 0, normB2 = 0;
+        const len2 = Math.min(N - doubleLag, 2048);
+        for (let i = 0; i < len2; i++) {
+            sum2 += data[i] * data[i + doubleLag];
+            normA2 += data[i] * data[i];
+            normB2 += data[i + doubleLag] * data[i + doubleLag];
+        }
+        const corr2 = sum2 / (Math.sqrt(normA2 * normB2) + 1e-10);
+        const freq2 = sr / doubleLag;
+        if (corr2 > bestCorr * 0.82 && freq2 >= 60 && freq2 <= 300) {
+            bestLag = doubleLag; bestCorr = corr2;
+        }
+    }
+
+    // Check lag / 2 (octave higher) for high voices
+    const halfLag = Math.floor(bestLag / 2);
+    if (halfLag >= minLag) {
+        let sum3 = 0, normA3 = 0, normB3 = 0;
+        const len3 = Math.min(N - halfLag, 2048);
+        for (let i = 0; i < len3; i++) {
+            sum3 += data[i] * data[i + halfLag];
+            normA3 += data[i] * data[i];
+            normB3 += data[i + halfLag] * data[i + halfLag];
+        }
+        const corr3 = sum3 / (Math.sqrt(normA3 * normB3) + 1e-10);
+        const freq3 = sr / halfLag;
+        if (corr3 > bestCorr * 0.95 && freq3 >= 150 && freq3 <= 500) {
+            bestLag = halfLag; bestCorr = corr3;
+        }
+    }
+
     return { freq: sr / bestLag, confidence: bestCorr, lag: bestLag };
 }
 
