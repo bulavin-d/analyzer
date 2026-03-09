@@ -1,4 +1,4 @@
-/* ============================================================
+﻿/* ============================================================
    BULAVIN AI ANALYZER v2.1 — App Module
    Mixing Chain Checklist · Cyber Scanner · Neon Charts
    DSP/Analyzer logic UNTOUCHED
@@ -14,6 +14,23 @@ const dropMine = document.getElementById('dropMine');
 const fileRef = document.getElementById('fileRef');
 const fileMine = document.getElementById('fileMine');
 const btn = document.getElementById('btnAnalyze');
+const uploadSection = document.querySelector('.upload-section');
+let sectionObserver = null;
+
+const RESULT_NAV_ITEMS = [
+  { id: 'section-score', mark: '◎', label: 'Итог' },
+  { id: 'section-eq', mark: '1', label: 'Эквалайзер' },
+  { id: 'section-comp', mark: '2', label: 'Компрессор' },
+  { id: 'section-deesser', mark: '3', label: 'Де-эссер' },
+  { id: 'section-loudness', mark: '4', label: 'Громкость' },
+  { id: 'section-details', mark: '5', label: 'Детали' },
+  { id: 'section-export', mark: '6', label: 'Экспорт' }
+];
+
+function setAppState(state) {
+  document.body.classList.remove('state-upload', 'state-scanning', 'state-results');
+  document.body.classList.add(`state-${state}`);
+}
 
 // ============================================================
 // IDLE PLACEHOLDER SINUSOID (drawn on startup, no audio loaded)
@@ -56,6 +73,7 @@ function drawIdleWave(canvasId, color) {
 window.addEventListener('load', () => {
   drawIdleWave('idleCanvasRef', '#E024B6');
   drawIdleWave('idleCanvasMine', '#7000FF');
+  setAppState('upload');
 });
 
 // ============================================================
@@ -162,6 +180,59 @@ function checkReady() {
   }
 }
 
+
+function resetDropState(dropEl, contentId, loadedId, nameId, metaId, inputEl) {
+  const content = document.getElementById(contentId);
+  const loaded = document.getElementById(loadedId);
+  if (content) content.style.display = 'flex';
+  if (loaded) loaded.style.display = 'none';
+  if (nameId && document.getElementById(nameId)) document.getElementById(nameId).textContent = '';
+  if (metaId && document.getElementById(metaId)) document.getElementById(metaId).textContent = '';
+  if (dropEl) dropEl.classList.remove('loaded');
+  if (inputEl) inputEl.value = '';
+}
+
+function resetAnalyzerView() {
+  if (sectionObserver) {
+    sectionObserver.disconnect();
+    sectionObserver = null;
+  }
+
+  refBuffer = null;
+  mineBuffer = null;
+
+  resetDropState(dropRef, 'dropRefContent', 'loadedRef', 'nameRef', 'metaRef', fileRef);
+  resetDropState(dropMine, 'dropMineContent', 'loadedMine', 'nameMine', 'metaMine', fileMine);
+
+  const overlay = document.getElementById('scannerOverlay');
+  if (overlay) overlay.style.display = 'none';
+
+  const prog = document.getElementById('progress');
+  const steps = document.getElementById('scanSteps');
+  if (steps) steps.innerHTML = '';
+  if (prog) prog.style.display = 'none';
+  const bar = document.getElementById('scanBarFill');
+  if (bar) bar.style.width = '0%';
+
+  const results = document.getElementById('results');
+  results.innerHTML = '';
+  results.style.display = 'none';
+
+  btn.style.display = 'inline-flex';
+  btn.disabled = true;
+  btn.className = 'analyze-btn';
+  btn.querySelector('.btn-text').textContent = 'Загрузи оба файла';
+
+  if (uploadSection) uploadSection.style.display = 'block';
+  setAppState('upload');
+
+  if (uploadSection) {
+    window.scrollTo({ top: uploadSection.offsetTop - 20, behavior: 'smooth' });
+  }
+}
+
+window.resetAnalyzerView = resetAnalyzerView;
+
 setupDrop(dropRef, fileRef, true);
 setupDrop(dropMine, fileMine, false);
 btn.addEventListener('click', () => { if (refBuffer && mineBuffer) runAnalysis(); });
@@ -182,47 +253,74 @@ function addScanStep(text, done) {
 async function runAnalysis() {
   btn.disabled = true; btn.className = 'analyze-btn scanning';
   btn.querySelector('.btn-text').textContent = 'Сканирование...';
+  setAppState('scanning');
+  if (uploadSection) uploadSection.style.display = 'none';
+  if (sectionObserver) {
+    sectionObserver.disconnect();
+    sectionObserver = null;
+  }
 
-  // Show scanner beam OVER the waveform drop zones (not a grey box)
   const overlay = document.getElementById('scannerOverlay');
   if (overlay) overlay.style.display = 'block';
 
   const prog = document.getElementById('progress');
   const stepsEl = document.getElementById('scanSteps');
+  const resultsEl = document.getElementById('results');
+
   stepsEl.innerHTML = '';
   document.getElementById('scanBarFill').style.width = '0%';
   prog.style.display = 'flex';
-  document.getElementById('results').innerHTML = '';
 
-  await sleep(80);
-  addScanStep('Обрезка тишины · Анализ референса...', false);
-  await sleep(20);
-  const refResult = analyzeTrack(refBuffer);
-  document.getElementById('scanBarFill').style.width = '35%';
-  markLastDone(stepsEl);
+  // When upload section is hidden, keep visible scanning state in results area.
+  resultsEl.style.display = 'block';
+  resultsEl.innerHTML = '<div class="card" style="max-width:760px;margin:24px auto;"><div class="card-body" style="padding:22px 24px;"><div class="score-verdict" style="font-size:18px;margin-bottom:6px">Сканирование...</div><div class="score-desc">Анализируем референс и строим рецепт цепочки.</div></div></div>';
 
-  addScanStep('Определение тоники · Анализ вокала...', false);
-  await sleep(20);
-  const mineResult = analyzeTrack(mineBuffer);
-  document.getElementById('scanBarFill').style.width = '70%';
-  markLastDone(stepsEl);
+  try {
+    await sleep(80);
+    addScanStep('Обрезка тишины · Анализ референса...', false);
+    await sleep(20);
+    const refResult = analyzeTrack(refBuffer);
+    document.getElementById('scanBarFill').style.width = '35%';
+    markLastDone(stepsEl);
 
-  addScanStep('Сравнение спектров · Генерация цепочки...', false);
-  await sleep(20);
-  const comp = compare(refResult, mineResult);
-  document.getElementById('scanBarFill').style.width = '100%';
-  markLastDone(stepsEl);
+    addScanStep('Определение тоники · Анализ вокала...', false);
+    await sleep(20);
+    const mineResult = analyzeTrack(mineBuffer);
+    document.getElementById('scanBarFill').style.width = '70%';
+    markLastDone(stepsEl);
 
-  addScanStep('Готово', true);
-  await sleep(400);
+    addScanStep('Сравнение спектров · Генерация цепочки...', false);
+    await sleep(20);
+    const comp = compare(refResult, mineResult);
+    document.getElementById('scanBarFill').style.width = '100%';
+    markLastDone(stepsEl);
 
-  // Stop scanner beam, show results
-  if (overlay) overlay.style.display = 'none';
-  renderResults(refResult, mineResult, comp);
-  prog.style.display = 'none';
-  btn.style.display = 'none';
+    addScanStep('Готово', true);
+    await sleep(300);
+
+    if (overlay) overlay.style.display = 'none';
+    renderResults(refResult, mineResult, comp);
+    prog.style.display = 'none';
+    btn.style.display = 'none';
+  } catch (err) {
+    if (overlay) overlay.style.display = 'none';
+    prog.style.display = 'none';
+    console.error(err);
+
+    if (uploadSection) uploadSection.style.display = 'block';
+    setAppState('upload');
+
+    btn.style.display = 'inline-flex';
+    btn.disabled = !(refBuffer && mineBuffer);
+    btn.className = btn.disabled ? 'analyze-btn' : 'analyze-btn ready';
+    btn.querySelector('.btn-text').textContent = btn.disabled ? 'Загрузи оба файла' : 'Сканировать';
+
+    resultsEl.innerHTML = '';
+    resultsEl.style.display = 'none';
+
+    alert('Ошибка анализа. Попробуй снова.\n\nЕсли повторится — пришли два файла и я подгоню алгоритм под кейс.');
+  }
 }
-
 function markLastDone(el) {
   el.lastChild.className = 'scan-step done';
   el.lastChild.querySelector('.step-indicator').textContent = '✓';
@@ -263,284 +361,279 @@ function diffBadge(val) {
 // ============================================================
 // RENDER RESULTS — MIXING CHAIN CHECKLIST
 // ============================================================
+function buildResultsSidebar() {
+  const links = RESULT_NAV_ITEMS.map(item => `
+    <a class="sidebar-link" href="#${item.id}" data-target="${item.id}">
+      <span class="sidebar-mark">${item.mark}</span>
+      <span>${item.label}</span>
+    </a>
+  `).join('');
+
+  return `
+    <aside class="results-sidebar" id="resultsSidebar" aria-label="Навигация по результатам">
+      <nav class="sidebar-nav">${links}</nav>
+    </aside>
+  `;
+}
+
+function activateResultsSidebar() {
+  if (sectionObserver) {
+    sectionObserver.disconnect();
+    sectionObserver = null;
+  }
+
+  const links = Array.from(document.querySelectorAll('.sidebar-link'));
+  if (!links.length) return;
+
+  const sections = RESULT_NAV_ITEMS
+    .map(item => document.getElementById(item.id))
+    .filter(Boolean);
+
+  if (!sections.length) return;
+
+  const visible = new Map();
+  RESULT_NAV_ITEMS.forEach(item => visible.set(item.id, 0));
+
+  const setActive = (id) => {
+    links.forEach(link => link.classList.toggle('active', link.dataset.target === id));
+  };
+
+  setActive(RESULT_NAV_ITEMS[0].id);
+
+  sectionObserver = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      visible.set(entry.target.id, entry.isIntersecting ? entry.intersectionRatio : 0);
+    });
+
+    let activeId = RESULT_NAV_ITEMS[0].id;
+    let bestRatio = -1;
+
+    RESULT_NAV_ITEMS.forEach(item => {
+      const ratio = visible.get(item.id) || 0;
+      if (ratio > bestRatio) {
+        bestRatio = ratio;
+        activeId = item.id;
+      }
+    });
+
+    if (bestRatio <= 0) {
+      const probeY = window.scrollY + 160;
+      RESULT_NAV_ITEMS.forEach(item => {
+        const el = document.getElementById(item.id);
+        if (el && el.offsetTop <= probeY) activeId = item.id;
+      });
+    }
+
+    setActive(activeId);
+  }, {
+    root: null,
+    rootMargin: '-25% 0px -60% 0px',
+    threshold: [0.15, 0.35, 0.6]
+  });
+
+  sections.forEach(section => sectionObserver.observe(section));
+}
+
 function renderResults(ref, mine, comp) {
   const r = document.getElementById('results');
   const sColor = comp.score >= 85 ? '#22C55E' : comp.score >= 60 ? '#F59E0B' : '#EF4444';
-  let html = '<div class="dash-grid">';
+  const verdict = comp.score >= 85
+    ? 'Звучит близко к референсу. Остались мелкие правки.'
+    : comp.score >= 60
+      ? 'Есть над чем поработать. Начни с приоритетов ниже.'
+      : 'Сильные отличия. Начни с основной цепочки ниже.';
 
-  // ── WARNINGS ──
-  if (mine.clipping && mine.clipping.isClipping)
+  const recipe = comp.reverseRecipe || {
+    chainLabel: '[Gate] → [HPF] → [EQ] → [Comp] → [De-esser] → [Reverb] → [Loudness]',
+    gate: { action: 'Gate по необходимости.', enabled: false },
+    hpf: { action: 'HPF около 80-100 Hz.' },
+    eq: { staticCuts: [], dynamicEq: { needed: false }, tiltAction: null },
+    compressor: { needed: false, action: comp.compAction || 'Компрессия по необходимости.' },
+    deesser: { needed: false, action: comp.deesserAction || 'De-Esser по необходимости.' },
+    reverb: { needed: false, action: 'Реверб по необходимости.' },
+    loudness: { targetLufs: -14, refLufs: ref.lufs.lufsI, mineLufs: mine.lufs.lufsI, toTarget: -14 - mine.lufs.lufsI },
+    priorities: comp.priorities || []
+  };
+
+  const topActions = (recipe.priorities && recipe.priorities.length)
+    ? recipe.priorities.slice(0, 3)
+    : (comp.priorities && comp.priorities.length ? comp.priorities.slice(0, 3) : ['Сначала поставь HPF и убери самые заметные резонансы.']);
+
+  let html = '<div class="results-layout">';
+  html += buildResultsSidebar();
+  html += '<div class="results-content">';
+
+  html += '<section id="section-score" class="result-section">';
+  html += `<div class="results-topbar"><button class="rescan-btn rescan-btn-top" onclick="resetAnalyzerView()">↻ Сканировать заново</button></div>`;
+  html += '<div class="dash-grid">';
+
+  if (mine.clipping && mine.clipping.isClipping) {
     html += `<div class="card span-12"><div class="card-body"><div class="warn-banner" style="color:rgba(239,68,68,0.8);background:rgba(239,68,68,0.06);border-color:rgba(239,68,68,0.1)">${mine.clipping.advice}</div></div></div>`;
-  if (comp.durationWarning)
+  }
+  if (comp.durationWarning) {
     html += `<div class="card span-12"><div class="card-body"><div class="warn-banner">${comp.durationWarning}</div></div></div>`;
-  if (ref.fp.hasReverb && mine.fp.isDry)
-    html += `<div class="card span-12"><div class="card-body"><div class="warn-banner" style="color:rgba(224,36,182,0.75);background:rgba(224,36,182,0.06);border-color:rgba(224,36,182,0.1)">Референс содержит реверб (${(ref.fp.reverbAmount * 100).toFixed(0)}%). Анализ учитывает это.</div></div></div>`;
+  }
 
-  // ── BLOCK 0: MATCH SCORE (full width) ──
   html += `<div class="card span-8">
-        <div class="card-header"><div class="card-title"><div class="card-dot"></div>Match Score</div>
-            <div style="display:flex;gap:8px">${fpBadge(ref.fp)} ${fpBadge(mine.fp)}</div>
+    <div class="card-header">
+      <div class="card-title"><div class="card-dot"></div>Итог</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+        <div style="display:flex;align-items:center;gap:6px"><span style="font-size:10px;color:var(--text-dim);letter-spacing:.05em">РЕФЕРЕНС</span>${fpBadge(ref.fp)}</div>
+        <div style="display:flex;align-items:center;gap:6px"><span style="font-size:10px;color:var(--text-dim);letter-spacing:.05em">ТВОЙ ВОКАЛ</span>${fpBadge(mine.fp)}</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="score-hero">
+        <div class="score-num" id="scoreNum" style="color:${sColor}">--</div>
+        <div class="score-info">
+          <div class="score-verdict">${verdict}</div>
+          <div class="score-desc">Рецепт собран из анализа референса и адаптирован под твой сухой вокал.</div>
         </div>
-        <div class="card-body">
-            <div class="score-hero">
-                <div class="score-num" id="scoreNum" style="color:${sColor}">--</div>
-                <div class="score-info">
-                    <div class="score-verdict">${comp.score >= 85 ? 'Звук близок к референсу' : comp.score >= 60 ? 'Есть что подтянуть' : 'Значительные отличия'}</div>
-                    <div class="score-desc">Совпадение спектра по вокальным зонам (Low-Mid – Clarity). Чем выше — тем ближе к референсу.</div>
-                </div>
-            </div>
-        </div>
-    </div>`;
+      </div>
+      <div class="advice-pill"><strong>Цепочка:</strong> ${recipe.chainLabel}</div>
+    </div>
+  </div>`;
 
-  // ── LOUDNESS mini card (4 cols) ──
   html += `<div class="card span-4">
-        <div class="card-header"><div class="card-title"><div class="card-dot"></div>Loudness</div></div>
-        <div class="card-body">
-            <div class="stat-row">
-                <div class="stat-box"><div class="stat-box-label">LUFS-I</div><div class="stat-box-value" style="color:var(--accent-pink)">${mine.lufs.lufsI}</div></div>
-                <div class="stat-box"><div class="stat-box-label">True Peak</div><div class="stat-box-value" style="color:${mine.lufs.truePeak > -1 ? 'var(--red)' : 'var(--green)'}">${mine.lufs.truePeak}</div><div class="stat-box-sub">dBTP</div></div>
-            </div>
-            <div class="stat-row" style="margin-top:4px">
-                <div class="stat-box"><div class="stat-box-label">Реф LUFS</div><div class="stat-box-value">${ref.lufs.lufsI}</div></div>
-                <div class="stat-box"><div class="stat-box-label">LRA</div><div class="stat-box-value">${mine.lufs.lra}</div><div class="stat-box-sub">LU</div></div>
-            </div>`;
-  const lufsDiff = -14 - mine.lufs.lufsI;
-  if (Math.abs(lufsDiff) > 2)
-    html += `<div class="advice-pill" style="margin-top:8px">${lufsDiff > 0 ? `Spotify −14 LUFS: нужно +${lufsDiff.toFixed(1)} LU. Лимитер.` : `Громче Spotify на ${Math.abs(lufsDiff).toFixed(1)} LU.`}</div>`;
-  html += `</div></div>`;
-
-  // ═══════════════════════════════════════════════════════════
-  //  BLOCK 1: ШАГ 1 — ЭКВАЛАЙЗЕР
-  // ═══════════════════════════════════════════════════════════
-  html += `<div class="chain-step span-12">
-        <div class="chain-header">
-            <div class="chain-num">1</div>
-            <div><div class="chain-title">Эквалайзер</div><div class="chain-subtitle">EQ · High-Pass · Резонансы · Тональный баланс</div></div>
-        </div>
-        <div class="chain-body">`;
-
-  // 1a. HPF
-  if (mine.fundamental) {
-    const hpf = Math.round(mine.fundamental.freq * 0.6);
-    const note = freqToNote(mine.fundamental.freq);
-    html += `<div class="action-item">
-            <div class="action-main">Поставь <strong>High-Pass (Low-Cut)</strong> фильтр на <strong>${hpf} Hz</strong></div>
-            <div class="action-detail">Твой голос: ${Math.round(mine.fundamental.freq)} Hz (${note}). Всё ниже ${hpf} Hz — мусор, бубнение, гул комнаты.${ref.fundamental ? ` Реф: ${Math.round(ref.fundamental.freq)} Hz.` : ''}</div>
-        </div>`;
-  }
-
-  // 1b. Resonances
-  if (mine.resonances.length > 0) {
-    mine.resonances.slice(0, 5).forEach((res, i) => {
-      html += `<div class="action-item">
-                <div class="action-main">Вырежи <strong>${res.freq} Hz</strong> на <strong style="color:var(--red)">−${res.cutDb} dB</strong> (Q: ${res.Q})</div>
-                <div class="action-detail">${res.label} · Превышение +${res.excess.toFixed(1)} dB · ${res.priority === 1 ? 'Критичный резонанс' : res.priority === 2 ? 'Заметный резонанс' : 'Мелкий резонанс'}</div>
-            </div>`;
-    });
-  } else {
-    html += `<div class="action-ok">✓ Резонансов не обнаружено</div>`;
-  }
-
-  // 1c. Tilt / Balance
-  if (comp.tiltAction) {
-    html += `<div class="action-item">
-            <div class="action-main">${comp.tiltAction.replace(/High-Shelf EQ/g, '<strong>High-Shelf EQ</strong>')}</div>
-            <div class="action-detail">${comp.tiltAdvice}</div>
-        </div>`;
-  } else if (comp.tiltAdvice) {
-    html += `<div class="action-ok">✓ ${comp.tiltAdvice}</div>`;
-  }
-
-  // 1d. Band EQ corrections
-  const eqBands = comp.bandDiffs.filter(b => b.severity !== 'ok' && Math.abs(b.diff) >= 4 && Math.abs(b.diff) < 12);
-  eqBands.forEach(b => {
-    const mid = Math.round((b.lo + b.hi) / 2);
-    const gain = b.diff > 0 ? `+${Math.min(b.diff, 6).toFixed(1)}` : `${Math.max(b.diff, -6).toFixed(1)}`;
-    html += `<div class="action-item">
-            <div class="action-main">${b.diff > 0 ? 'Добавь' : 'Убери'} <strong>${b.name}</strong> (${b.lo}–${b.hi} Hz): <strong>${gain} dB</strong></div>
-            <div class="action-detail">${b.advice}</div>
-        </div>`;
+    <div class="card-header"><div class="card-title"><div class="card-dot"></div>Топ-3 действия</div></div>
+    <div class="card-body">`;
+  topActions.forEach((action, i) => {
+    html += `<div class="advice-pill" style="margin-bottom:8px"><strong>${i + 1}.</strong> ${action}</div>`;
   });
-  if (eqBands.length === 0 && mine.resonances.length === 0 && !comp.tiltAction) {
-    html += `<div class="action-ok">✓ EQ коррекция не требуется — спектр совпадает с рефом</div>`;
-  }
+  html += '</div></div>';
 
-  html += `</div></div>`; // close chain-body, chain-step
+  html += '</div></section>';
 
-  // ═══════════════════════════════════════════════════════════
-  //  BLOCK 2: ШАГ 2 — КОМПРЕССИЯ
-  // ═══════════════════════════════════════════════════════════
+  html += '<section id="section-eq" class="result-section"><div class="dash-grid">';
   html += `<div class="chain-step span-12">
-        <div class="chain-header">
-            <div class="chain-num">2</div>
-            <div><div class="chain-title">Динамика</div><div class="chain-subtitle">Компрессия · Gain Reduction · Автоматизация</div></div>
-        </div>
-        <div class="chain-body">`;
+    <div class="chain-header">
+      <div class="chain-num">1</div>
+      <div><div class="chain-title">Эквалайзер</div><div class="chain-subtitle">Gate → HPF → EQ</div></div>
+    </div>
+    <div class="chain-body">`;
 
-  if (comp.compAction) {
-    html += `<div class="action-item">
-            <div class="action-main">${comp.compAction.replace(/Attack:|Release:|Ratio:|Gain Reduction/g, m => `<strong>${m}</strong>`)}</div>
-            <div class="action-detail">${comp.compAdvice}</div>
-        </div>`;
-  } else {
-    html += `<div class="action-ok">✓ ${comp.compAdvice}</div>`;
+  html += `<div class="action-item"><div class="action-main">${recipe.gate.action}</div><div class="action-detail">${recipe.gate.enabled ? 'Референс с очень чистыми паузами.' : 'Паузы не требуют жёсткого gating.'}</div></div>`;
+  html += `<div class="action-item"><div class="action-main">${recipe.hpf.action}</div><div class="action-detail">HPF восстанавливается по перегибу НЧ у референса.</div></div>`;
+
+  if (recipe.eq.dynamicEq && recipe.eq.dynamicEq.needed) {
+    html += `<div class="action-item"><div class="action-main">${recipe.eq.dynamicEq.action}</div><div class="action-detail">Резонанс сильнее в тихих фразах — это ближний эффект микрофона.</div></div>`;
   }
 
-  html += `<div class="action-item">
-        <div class="action-detail" style="margin-top:0">${comp.dynAdvice}</div>
-    </div>`;
-
-  // Stats for geeks (small)
-  html += `<div class="stat-row" style="margin-top:8px">
-        <div class="stat-box"><div class="stat-box-label">Crest Factor</div><div class="stat-box-value">${mine.crest.toFixed(1)}</div><div class="stat-box-sub">Реф: ${ref.crest.toFixed(1)}</div></div>
-        <div class="stat-box"><div class="stat-box-label">Dynamic Range</div><div class="stat-box-value">${mine.dynRange.toFixed(1)}</div><div class="stat-box-sub">Реф: ${ref.dynRange.toFixed(1)}</div></div>`;
-  if (mine.transients) {
-    html += `<div class="stat-box"><div class="stat-box-label">Атака вокала</div><div class="stat-box-value">${mine.transients.medianAttackMs}</div><div class="stat-box-sub">мс</div></div>`;
+  if (recipe.eq.staticCuts && recipe.eq.staticCuts.length > 0) {
+    recipe.eq.staticCuts.forEach(c => {
+      html += `<div class="action-item"><div class="action-main">Подрежь ${c.freqHz} Hz на ${-Math.abs(c.cutDb)} dB (Q ${c.q})</div><div class="action-detail">${c.label}</div></div>`;
+    });
   }
-  html += `</div></div></div>`;
 
-  // ═══════════════════════════════════════════════════════════
-  //  BLOCK 3: ШАГ 3 — ДЕ-ЭССЕР
-  // ═══════════════════════════════════════════════════════════
+  if (recipe.eq.tiltAction) {
+    html += `<div class="action-item"><div class="action-main">${recipe.eq.tiltAction}</div><div class="action-detail">Тональный баланс подгоняется под референс.</div></div>`;
+  }
+
+  html += '</div></div></div></section>';
+
+  html += '<section id="section-comp" class="result-section"><div class="dash-grid">';
   html += `<div class="chain-step span-12">
-        <div class="chain-header">
-            <div class="chain-num">3</div>
-            <div><div class="chain-title">Де-эссер</div><div class="chain-subtitle">Яркость · Сибилянты · 4–10 kHz</div></div>
-        </div>
-        <div class="chain-body">`;
+    <div class="chain-header">
+      <div class="chain-num">2</div>
+      <div><div class="chain-title">Компрессор</div><div class="chain-subtitle">Параметры восстановлены из референса</div></div>
+    </div>
+    <div class="chain-body">`;
+  html += `<div class="action-item"><div class="action-main">${recipe.compressor.action}</div><div class="action-detail">${comp.compAdvice} ${comp.dynAdvice}</div></div>`;
+  html += '</div></div></div></section>';
 
-  if (comp.deesserAction) {
-    html += `<div class="action-item">
-            <div class="action-main">${comp.deesserAction.replace(/De-Esser|De-esser/g, '<strong>De-Esser</strong>').replace(/\d+ Hz/g, m => `<strong>${m}</strong>`)}</div>
-            <div class="action-detail">${comp.harshAdvice}</div>
-        </div>`;
-  } else {
-    html += `<div class="action-ok">✓ ${comp.harshAdvice}</div>`;
-  }
+  html += '<section id="section-deesser" class="result-section"><div class="dash-grid">';
+  html += `<div class="chain-step span-12">
+    <div class="chain-header">
+      <div class="chain-num">3</div>
+      <div><div class="chain-title">Де-эссер / Реверб</div><div class="chain-subtitle">Сибилянты и хвосты фраз</div></div>
+    </div>
+    <div class="chain-body">`;
+  html += `<div class="action-item"><div class="action-main">${recipe.deesser.action}</div><div class="action-detail">${comp.harshAdvice}</div></div>`;
+  html += `<div class="action-item"><div class="action-main">${recipe.reverb.action}</div><div class="action-detail">Хвосты фраз: реф ${recipe.reverb.refTailMs || 0} мс, твой ${recipe.reverb.mineTailMs || 0} мс.</div></div>`;
+  html += '</div></div></div></section>';
 
-  html += `<div class="stat-row" style="margin-top:8px">
-        <div class="stat-box"><div class="stat-box-label">Яркость</div><div class="stat-box-value" style="color:${mine.harshness.index > 65 ? 'var(--red)' : mine.harshness.index > 45 ? 'var(--amber)' : 'var(--green)'}">${mine.harshness.index}</div><div class="stat-box-sub">Реф: ${ref.harshness.index}</div></div>
-        <div class="stat-box"><div class="stat-box-label">Де-эссер freq</div><div class="stat-box-value" style="color:var(--accent-pink)">${mine.harshness.deesserFreq}</div><div class="stat-box-sub">Hz</div></div>
-    </div></div></div>`;
+  html += '<section id="section-loudness" class="result-section"><div class="dash-grid">';
+  html += `<div class="chain-step span-12">
+    <div class="chain-header">
+      <div class="chain-num">4</div>
+      <div><div class="chain-title">Громкость</div><div class="chain-subtitle">LUFS и финальный уровень</div></div>
+    </div>
+    <div class="chain-body">
+      <div class="stat-row">
+        <div class="stat-box"><div class="stat-box-label">Твой LUFS</div><div class="stat-box-value" style="color:var(--accent-pink)">${recipe.loudness.mineLufs}</div></div>
+        <div class="stat-box"><div class="stat-box-label">Реф LUFS</div><div class="stat-box-value">${recipe.loudness.refLufs}</div></div>
+        <div class="stat-box"><div class="stat-box-label">Target</div><div class="stat-box-value">${recipe.loudness.targetLufs}</div><div class="stat-box-sub">LUFS</div></div>
+      </div>
+      <div class="advice-pill">${recipe.loudness.toTarget > 0 ? `До цели не хватает ${recipe.loudness.toTarget.toFixed(1)} LU. Подними лимитером.` : `Ты выше цели на ${Math.abs(recipe.loudness.toTarget).toFixed(1)} LU. Можно слегка отпустить лимитер.`}</div>
+    </div>
+  </div>`;
+  html += '</div></section>';
 
-  // ═══════════════════════════════════════════════════════════
-  //  BLOCK 4: ШАГ 4 — ПРОСТРАНСТВО
-  // ═══════════════════════════════════════════════════════════
-  if (mine.isStereo || ref.isStereo) {
-    html += `<div class="chain-step span-12">
-            <div class="chain-header">
-                <div class="chain-num">4</div>
-                <div><div class="chain-title">Пространство</div><div class="chain-subtitle">Стерео · Фаза · Ширина</div></div>
-            </div>
-            <div class="chain-body">`;
-    if (mine.stereo) {
-      const pOk = mine.stereo.avgCorr > 0.3;
-      if (pOk) {
-        html += `<div class="action-ok">✓ Стерео в фазе (корреляция: ${mine.stereo.avgCorr.toFixed(2)}). Моно-совместимо.</div>`;
-      } else {
-        html += `<div class="action-item">
-                    <div class="action-main">Фазовые конфликты! Корреляция: <strong style="color:var(--red)">${mine.stereo.avgCorr.toFixed(2)}</strong></div>
-                    <div class="action-detail">${mine.stereo.phaseIssuePercent.toFixed(0)}% фреймов с конфликтами. Проверь плагины расширения стерео — возможно, Haas-эффект или MicroShift слишком агрессивные.</div>
-                </div>`;
-      }
-      const widthPct = (mine.stereo.width * 100).toFixed(0);
-      if (widthPct < 20) {
-        html += `<div class="action-item">
-                    <div class="action-main">Стерео слишком узкое (<strong>${widthPct}%</strong>)</div>
-                    <div class="action-detail">Попробуй MicroShift, Dimension Expander или лёгкий стерео-дилэй (10–20 мс).</div>
-                </div>`;
-      }
-    } else {
-      html += `<div class="action-ok">✓ Моно-трек — фазовых проблем нет</div>`;
-    }
-    html += `</div></div>`;
-  }
-
-  // ═══════════════════════════════════════════════════════════
-  //  CHARTS: Spectrum + Envelope (dashboard cards)
-  // ═══════════════════════════════════════════════════════════
+  html += '<section id="section-details" class="result-section"><div class="dash-grid">';
   html += `<div class="card span-8">
-        <div class="card-header"><div class="card-title"><div class="card-dot"></div>Спектр</div></div>
-        <div class="card-body"><div class="chart-wrap chart-wrap-tall"><canvas id="chSpec"></canvas></div></div>
-    </div>`;
+    <div class="card-header"><div class="card-title"><div class="card-dot"></div>Спектр</div></div>
+    <div class="card-body"><div class="chart-wrap chart-wrap-tall"><canvas id="chSpec"></canvas></div></div>
+  </div>`;
 
-  // Pitch stability (if available)
   if (mine.pitchData) {
     html += `<div class="card span-4">
-            <div class="card-header"><div class="card-title"><div class="card-dot"></div>Стабильность питча</div></div>
-            <div class="card-body">
-                <div class="stat-row">
-                    <div class="stat-box"><div class="stat-box-label">Стабильность</div><div class="stat-box-value" style="color:${mine.pitchData.stabilityScore >= 70 ? 'var(--green)' : mine.pitchData.stabilityScore >= 40 ? 'var(--amber)' : 'var(--red)'}">${mine.pitchData.stabilityScore}</div><div class="stat-box-sub">/100</div></div>
-                    <div class="stat-box"><div class="stat-box-label">Разброс</div><div class="stat-box-value">±${mine.pitchData.stdCents}</div><div class="stat-box-sub">центов</div></div>
-                </div>
-                ${mine.pitchData.stabilityScore < 70 ? `<div class="advice-pill" style="margin-top:8px">${mine.pitchData.stabilityScore < 40 ? 'Нужна коррекция: Newtone / Melodyne.' : 'Лёгкий автотюн улучшит звучание.'}</div>` : ''}
-                <div class="chart-wrap" style="height:150px"><canvas id="chPitch"></canvas></div>
-            </div></div>`;
+      <div class="card-header"><div class="card-title"><div class="card-dot"></div>Стабильность питча</div></div>
+      <div class="card-body">
+        <div class="stat-row">
+          <div class="stat-box"><div class="stat-box-label">Стабильность</div><div class="stat-box-value" style="color:${mine.pitchData.stabilityScore >= 70 ? 'var(--green)' : mine.pitchData.stabilityScore >= 40 ? 'var(--amber)' : 'var(--red)'}">${mine.pitchData.stabilityScore}</div><div class="stat-box-sub">/100</div></div>
+          <div class="stat-box"><div class="stat-box-label">Разброс</div><div class="stat-box-value">±${mine.pitchData.stdCents}</div><div class="stat-box-sub">центов</div></div>
+        </div>
+        <div class="chart-wrap" style="height:150px"><canvas id="chPitch"></canvas></div>
+      </div>
+    </div>`;
   } else {
-    // Noise + extra stats instead
-    html += `<div class="card span-4">
-            <div class="card-header"><div class="card-title"><div class="card-dot"></div>Шум</div></div>
-            <div class="card-body">
-                <div class="stat-row">
-                    <div class="stat-box"><div class="stat-box-label">Noise Floor</div><div class="stat-box-value" style="color:${mine.noise.noiseLevel > -50 ? 'var(--red)' : mine.noise.noiseLevel > -60 ? 'var(--amber)' : 'var(--green)'}">${mine.noise.noiseLevel}</div><div class="stat-box-sub">dBFS</div></div>
-                    <div class="stat-box"><div class="stat-box-label">SNR</div><div class="stat-box-value">${mine.noise.snr}</div><div class="stat-box-sub">dB</div></div>
-                </div>
-                <div class="advice-pill" style="margin-top:8px">${mine.noise.advice}</div>
-            </div></div>`;
+    html += `<div class="card span-4"><div class="card-header"><div class="card-title"><div class="card-dot"></div>Питч</div></div><div class="card-body"><div class="advice-pill">Недостаточно стабильных фрагментов для оценки питча.</div></div></div>`;
   }
 
-  // Noise card (if pitch was shown)
-  if (mine.pitchData) {
-    html += `<div class="card span-4">
-            <div class="card-header"><div class="card-title"><div class="card-dot"></div>Шум</div></div>
-            <div class="card-body">
-                <div class="stat-row">
-                    <div class="stat-box"><div class="stat-box-label">Noise Floor</div><div class="stat-box-value" style="color:${mine.noise.noiseLevel > -50 ? 'var(--red)' : mine.noise.noiseLevel > -60 ? 'var(--amber)' : 'var(--green)'}">${mine.noise.noiseLevel}</div><div class="stat-box-sub">dBFS</div></div>
-                    <div class="stat-box"><div class="stat-box-label">SNR</div><div class="stat-box-value">${mine.noise.snr}</div><div class="stat-box-sub">dB</div></div>
-                </div>
-                <div class="advice-pill" style="margin-top:8px">${mine.noise.advice}</div>
-            </div></div>`;
-  }
-
-  // Band detail
   html += `<div class="card span-8">
-        <div class="card-header"><div class="card-title"><div class="card-dot"></div>Частотные зоны</div></div>
-        <div class="card-body">`;
+    <div class="card-header"><div class="card-title"><div class="card-dot"></div>Частотные зоны</div></div>
+    <div class="card-body">`;
   comp.bandDiffs.forEach(b => {
     const dCol = Math.abs(b.diff) < 4 ? 'var(--green)' : (b.diff > 0 ? '#E024B6' : '#F59E0B');
     const rW = Math.max(4, Math.round((b.refE + 70) * 1.5));
     const mW = Math.max(4, Math.round((b.mineE + 70) * 1.5));
-    html += `<div class="band-item">
-            <div class="band-name">${b.name}<small>${b.lo}–${b.hi}</small></div>
-            <div class="band-bars">
-                <div class="band-bar-row"><div class="band-bar-label" style="color:#E024B6">R</div><div class="band-bar band-bar-ref" style="width:${rW}px"></div></div>
-                <div class="band-bar-row"><div class="band-bar-label" style="color:#7000FF">M</div><div class="band-bar band-bar-mine" style="width:${mW}px"></div></div>
-            </div>
-            <div class="band-diff-val" style="color:${dCol}">${b.diff > 0 ? '+' : ''}${b.diff.toFixed(1)}</div>
-        </div>`;
+    html += `<div class="band-item"><div class="band-name">${b.name}<small>${b.lo}-${b.hi}</small></div><div class="band-bars"><div class="band-bar-row"><div class="band-bar-label" style="color:#E024B6">R</div><div class="band-bar band-bar-ref" style="width:${rW}px"></div></div><div class="band-bar-row"><div class="band-bar-label" style="color:#7000FF">M</div><div class="band-bar band-bar-mine" style="width:${mW}px"></div></div></div><div class="band-diff-val" style="color:${dCol}">${b.diff > 0 ? '+' : ''}${b.diff.toFixed(1)}</div></div>`;
   });
-  html += `</div></div>`;
+  html += '</div></div>';
 
-  // Envelope
+  html += `<div class="card span-4">
+    <div class="card-header"><div class="card-title"><div class="card-dot"></div>Шум</div></div>
+    <div class="card-body">
+      <div class="stat-row">
+        <div class="stat-box"><div class="stat-box-label">Noise Floor</div><div class="stat-box-value" style="color:${mine.noise.noiseLevel > -50 ? 'var(--red)' : mine.noise.noiseLevel > -60 ? 'var(--amber)' : 'var(--green)'}">${mine.noise.noiseLevel}</div><div class="stat-box-sub">dBFS</div></div>
+        <div class="stat-box"><div class="stat-box-label">SNR</div><div class="stat-box-value">${mine.noise.snr}</div><div class="stat-box-sub">dB</div></div>
+      </div>
+      <div class="advice-pill">${mine.noise.advice}</div>
+    </div>
+  </div>`;
+
   html += `<div class="card span-12">
-        <div class="card-header"><div class="card-title"><div class="card-dot"></div>Огибающая громкости</div></div>
-        <div class="card-body"><div class="chart-wrap"><canvas id="chEnv"></canvas></div></div>
-    </div>`;
+    <div class="card-header"><div class="card-title"><div class="card-dot"></div>Огибающая громкости</div></div>
+    <div class="card-body"><div class="chart-wrap"><canvas id="chEnv"></canvas></div></div>
+  </div>`;
 
-  // DAW Export
+  html += '</div></section>';
+
+  html += '<section id="section-export" class="result-section"><div class="dash-grid">';
   html += `<div class="card span-12">
-        <div class="card-header"><div class="card-title"><div class="card-dot"></div>Экспорт настроек</div></div>
-        <div class="card-body">
-            <button class="copy-btn" id="copySettingsBtn" onclick="copySettings()">📋 Скопировать настройки</button>
-            <pre id="settingsText" style="display:none;font-family:'Inter',sans-serif;font-size:12px;color:var(--text-muted);background:rgba(255,255,255,0.02);padding:16px;border-radius:12px;margin-top:12px;white-space:pre-wrap;border:1px solid var(--border-card);line-height:1.6">${generateSettingsText(ref, mine, comp)}</pre>
-        </div></div>`;
+    <div class="card-header"><div class="card-title"><div class="card-dot"></div>Экспорт</div></div>
+    <div class="card-body">
+      <button class="copy-btn" id="copySettingsBtn" onclick="copySettings()">📋 Скопировать настройки</button>
+      <pre id="settingsText" style="display:none;font-family:'Inter',sans-serif;font-size:12px;color:var(--text-muted);background:rgba(255,255,255,0.02);padding:16px;border-radius:12px;margin-top:12px;white-space:pre-wrap;border:1px solid var(--border-card);line-height:1.6">${generateSettingsText(ref, mine, comp)}</pre>
+    </div>
+  </div>`;
+  html += '</div></section>';
 
-  // RESCAN button (at bottom, wide)
-  html += `<div class="span-12"><button class="rescan-btn" onclick="location.reload()">↻ Сканировать заново</button></div>`;
+  html += '</div></div>';
 
-  html += '</div>'; // close dash-grid
   r.innerHTML = html;
   r.style.display = 'block';
+  setAppState('results');
   window.scrollTo({ top: r.offsetTop - 20, behavior: 'smooth' });
 
   setTimeout(() => {
@@ -548,13 +641,40 @@ function renderResults(ref, mine, comp) {
     if (scoreNum) animateNumber(scoreNum, 0, comp.score, 1200);
   }, 200);
 
+  activateResultsSidebar();
   buildCharts(ref, mine);
 }
-
-// ============================================================
 // SETTINGS TEXT
 // ============================================================
 function generateSettingsText(ref, mine, comp) {
+  const recipe = comp.reverseRecipe;
+  if (recipe) {
+    let t = '== BULAVIN AI ANALYZER — Рецепт цепочки ==\n\n';
+    t += `[Chain]\n${recipe.chainLabel}\n\n`;
+    t += `[Gate]\n• ${recipe.gate.action}\n\n`;
+    t += `[HPF]\n• ${recipe.hpf.action}\n\n`;
+
+    t += '[EQ]\n';
+    if (recipe.eq.dynamicEq && recipe.eq.dynamicEq.needed) {
+      t += `• ${recipe.eq.dynamicEq.action}\n`;
+    }
+    if (recipe.eq.staticCuts && recipe.eq.staticCuts.length) {
+      recipe.eq.staticCuts.forEach(c => {
+        t += `• ${c.freqHz} Hz: -${Math.abs(c.cutDb)} dB, Q=${c.q}\n`;
+      });
+    } else {
+      t += '• Явных статических срезов не требуется\n';
+    }
+    if (recipe.eq.tiltAction) t += `• ${recipe.eq.tiltAction}\n`;
+    t += '\n';
+
+    t += `[Compressor]\n• ${recipe.compressor.action}\n\n`;
+    t += `[De-Esser]\n• ${recipe.deesser.action}\n\n`;
+    t += `[Reverb]\n• ${recipe.reverb.action}\n\n`;
+    t += `[Loudness]\n• Реф: ${recipe.loudness.refLufs} LUFS\n• Твой: ${recipe.loudness.mineLufs} LUFS\n• Цель: ${recipe.loudness.targetLufs} LUFS\n`;
+    return t;
+  }
+
   let t = '== BULAVIN AI ANALYZER v2.0 — Настройки ==\n\n';
   const eqBands = comp.bandDiffs.filter(b => b.severity !== 'ok' && Math.abs(b.diff) >= 4 && Math.abs(b.diff) < 12);
   if (mine.fundamental) {
@@ -574,23 +694,11 @@ function generateSettingsText(ref, mine, comp) {
     });
     t += '\n';
   }
-  if (comp.compAction) {
-    t += '[Compressor]\n';
-    if (mine.transients) t += `• Attack: ${mine.transients.compAttackMs} мс\n• Release: ${mine.transients.compReleaseMs} мс\n`;
-    t += `• Ratio: ${mine.crest > 18 ? '4:1' : '3:1'}\n\n`;
-  }
-  if (comp.deesserAction) {
-    t += `[De-Esser]\n• Частота: ${mine.harshness.deesserFreq} Hz\n\n`;
-  }
-  if (mine.noise.noiseLevel > -60) {
-    t += `[Noise Gate]\n• Threshold: ${mine.noise.noiseLevel + 6} dBFS\n• Attack: 2 мс, Release: 80 мс\n\n`;
-  }
+  if (comp.compAction) t += `[Compressor]\n• ${comp.compAction}\n\n`;
+  if (comp.deesserAction) t += `[De-Esser]\n• ${comp.deesserAction}\n\n`;
   t += `[Loudness]\n• Текущий: ${mine.lufs.lufsI} LUFS-I\n• Цель: −14.0 LUFS\n`;
-  const diff = -14 - mine.lufs.lufsI;
-  if (diff > 2) t += `• Нужно: +${diff.toFixed(1)} LU\n`;
   return t;
 }
-
 function copySettings() {
   const text = document.getElementById('settingsText').textContent;
   navigator.clipboard.writeText(text).then(() => {
@@ -693,3 +801,16 @@ function buildCharts(ref, mine) {
     });
   }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+

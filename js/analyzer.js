@@ -1,4 +1,4 @@
-/* ============================================================
+﻿/* ============================================================
    BULAVIN AI ANALYZER v2.0 — Analyzer Module
    Track analysis, comparison, scoring — production-grade
    ============================================================ */
@@ -39,16 +39,35 @@ function classifyResZone(freq) {
     for (const z of RES_ZONES) { if (freq >= z.lo && freq < z.hi) return z; }
     return { zone: 'unknown', label: '🔔 Резонанс', tip: '' };
 }
-
+function computeBandEnergies(freqs, psd, normPowerDb) {
+    return BANDS.map(b => {
+        let sum = 0, count = 0;
+        for (let i = 0; i < freqs.length; i++) {
+            if (freqs[i] >= b.lo && freqs[i] <= b.hi) { sum += psd[i]; count++; }
+        }
+        const energy = count > 0 ? dB10(sum / count) - normPowerDb : -80;
+        return { ...b, energy };
+    });
+}
+function addToneProfile(bands) {
+    const anchors = bands.filter(b => SCORE_BANDS.includes(b.name));
+    const anchorMean = anchors.length
+        ? anchors.reduce((s, b) => s + b.energy, 0) / anchors.length
+        : bands.reduce((s, b) => s + b.energy, 0) / Math.max(1, bands.length);
+    return bands.map(b => ({ ...b, tone: b.energy - anchorMean }));
+}
+function psdToPowerDb(psd, sr, nfft) {
+    const df = sr / nfft;
+    let power = 0;
+    for (let i = 0; i < psd.length; i++) power += psd[i] * df;
+    return 10 * Math.log10(Math.max(power, 1e-20));
+}
 /* ============================================================
    PROCESSING FINGERPRINT (v2.1: pause-based reverb detection)
    ============================================================ */
-function fingerprint(crest, dynRange, bandEnergies, data, sr) {
-    // REVERB DETECTION via pause analysis
-    // Reverb = energy remains > -48 dBFS in pauses between phrases
-    // Dry/compressed vocal = pauses are truly silent (< -55 dBFS)
-
-    const frameSize = Math.floor(0.02 * sr); // 20ms frames
+function fingerprint(crest, dynRange, bandEnergies, data, sr, stereoInfo) {
+    // Reverb detection uses two signals for stereo files: pause tails + stereo width.
+    const frameSize = Math.floor(0.02 * sr);
     const frameRmsDb = [];
     for (let i = 0; i + frameSize <= data.length; i += frameSize) {
         let s = 0;
@@ -56,15 +75,16 @@ function fingerprint(crest, dynRange, bandEnergies, data, sr) {
         frameRmsDb.push(10 * Math.log10(Math.max(s / frameSize, 1e-20)));
     }
 
-    // Find real pauses: silence > 80ms in a row
-    const minPauseFrames = Math.ceil(0.08 * sr / frameSize);
-    const VOICE_THRESH = -38;
-    const REVERB_THRESH = -48;
+    const sortedFrames = [...frameRmsDb].sort((a, b) => a - b);
+    const p85 = sortedFrames[Math.floor(sortedFrames.length * 0.85)] ?? -35;
 
-    let pauseEnergies = [];
+    const minPauseFrames = Math.ceil(0.08 * sr / frameSize);
+    const VOICE_THRESH = Math.max(-52, Math.min(-38, p85 - 16));
+    const REVERB_THRESH = Math.max(-60, Math.min(-44, VOICE_THRESH - 10));
+
+    const pauseEnergies = [];
     let silenceRun = 0;
     let silenceBuf = [];
-
     for (let i = 0; i < frameRmsDb.length; i++) {
         if (frameRmsDb[i] < VOICE_THRESH) {
             silenceRun++;
@@ -79,31 +99,73 @@ function fingerprint(crest, dynRange, bandEnergies, data, sr) {
         }
     }
 
+    const isStereo = !!(stereoInfo && stereoInfo.isStereo);
+    const stereoWidth = isStereo
+        ? Math.max(0, Math.min(1, (stereoInfo.width ?? (1 - (stereoInfo.avgCorr ?? 1)))))
+        : 0;
+    const hasWideStereo = isStereo && stereoWidth > 0.25;
+
     let hasReverb = false;
     let reverbAmount = 0;
+    let avgPauseDb = -90;
 
-    if (pauseEnergies.length > 10) {
+    const reverbReliable = pauseEnergies.length > 10 && pauseEnergies.length > frameRmsDb.length * 0.05;
+    if (reverbReliable) {
         pauseEnergies.sort((a, b) => b - a);
         const top = pauseEnergies.slice(0, Math.ceil(pauseEnergies.length * 0.3));
-        const avgPauseDb = top.reduce((a, b) => a + b, 0) / top.length;
-        hasReverb = avgPauseDb > REVERB_THRESH;
-        reverbAmount = hasReverb ? Math.min(1, (avgPauseDb - REVERB_THRESH) / 12) : 0;
-    }
-    else if (frameRmsDb.length > 50) {
-        hasReverb = crest > 20 && dynRange > 18;
-        reverbAmount = hasReverb ? 0.3 : 0;
+        avgPauseDb = top.reduce((a, b) => a + b, 0) / top.length;
+
+        // Mono files rely on tails only (stricter threshold).
+        const monoTailThresh = REVERB_THRESH + 2;
+        const tailsSuggestReverb = avgPauseDb > REVERB_THRESH;
+        const tailsSuggestReverbMono = avgPauseDb > monoTailThresh;
+
+        if (isStereo) {
+            hasReverb = tailsSuggestReverb && hasWideStereo;
+            reverbAmount = hasReverb ? Math.min(1, (avgPauseDb - REVERB_THRESH) / 10) : 0;
+        } else {
+            hasReverb = tailsSuggestReverbMono;
+            reverbAmount = hasReverb ? Math.min(1, (avgPauseDb - monoTailThresh) / 10) : 0;
+        }
     }
 
     const hasCompression = crest < 13 && dynRange < 9;
     const airPresenceRatio = bandEnergies[8] - bandEnergies[5];
-    const hasSaturation = airPresenceRatio > -20;
+    const hasSaturation = airPresenceRatio > -8;
 
     let level = 'dry';
     if (hasReverb) level = 'wet';
-    else if (hasCompression && hasSaturation) level = 'processed';
-    else if (hasCompression || hasSaturation) level = 'lightly';
+    else if (hasCompression) level = 'processed';
+    else if (hasSaturation) level = 'lightly';
 
-    return { isDry: level === 'dry', hasReverb, reverbAmount, hasCompression, hasSaturation, level };
+    if (typeof window !== 'undefined' && window.__BULAVIN_DEBUG_FP) {
+        console.log('[FP]', {
+            VOICE_THRESH,
+            REVERB_THRESH,
+            pauseFrames: pauseEnergies.length,
+            avgPauseDb,
+            reverbReliable,
+            isStereo,
+            stereoWidth,
+            hasWideStereo,
+            hasReverb,
+            crest,
+            dynRange
+        });
+    }
+
+    return {
+        isDry: level === 'dry',
+        hasReverb,
+        reverbAmount,
+        hasCompression,
+        hasSaturation,
+        level,
+        reverbReliable,
+        stereoWidth,
+        hasWideStereo,
+        avgPauseDb
+    };
 }
 
 /* ============================================================
@@ -171,15 +233,15 @@ function analyzeTrack(buf) {
         }
     }
 
-    // Band energies (FIX 1.1: use rmsPowerDb)
-    const bands = BANDS.map(b => {
-        let sum = 0, count = 0;
-        for (let i = 0; i < freqs.length; i++) {
-            if (freqs[i] >= b.lo && freqs[i] <= b.hi) { sum += psd[i]; count++; }
-        }
-        const e = count > 0 ? dB10(sum / count) - rmsPowerDb : -80;
-        return { ...b, energy: e };
-    });
+    // Band energies (normalized to overall level)
+    const bands = addToneProfile(computeBandEnergies(freqs, psd, rmsPowerDb));
+    // Direct-sound profile: onsets are less contaminated by reverb tails
+    let directBands = null;
+    const onset = onsetGatedPSD(data, sr, 2048);
+    if (onset && onset.psd && onset.psd.length > 0) {
+        const directNormPowerDb = psdToPowerDb(onset.psd, sr, onset.nfft);
+        directBands = addToneProfile(computeBandEnergies(onset.freqs, onset.psd, directNormPowerDb));
+    }
 
     // Smart resonances (FIX 1.7: logarithmic smoothing)
     const binBw = sr / nfft;
@@ -285,106 +347,277 @@ function analyzeTrack(buf) {
     const harshness = detectHarshness(data, sr, freqs, psd);
 
     // NEW v2.0 metrics
-    const fp = fingerprint(crest, dynRange, bands.map(b => b.energy), data, sr);
+    const fp = fingerprint(crest, dynRange, bands.map(b => b.energy), data, sr, {
+        isStereo: buf.numberOfChannels >= 2,
+        avgCorr: stereo ? stereo.avgCorr : 1,
+        width: stereo ? stereo.width : 0
+    });
     const lufs = measureLUFS(data, sr);
     const transients = analyzeTransients(data, sr);
     const pitchData = pitchTrack(data, sr);
     const tilt = spectralTilt(freqs, psdDb);
     const noise = noiseFloor(data, sr);
     const clipping = detectClipping(data);
+    const compModel = estimateCompressorFromSignal(data, sr);
+    const reverbModel = estimateReverbRT60(data, sr);
+    const dynamicEqModel = dynamicEqByLoudness(data, sr, 2048);
 
     return {
         peakDb, rmsDb, activeRmsDb, crest, dynRange, transientSpeed,
         duration: data.length / sr, rawDuration: rawData.length / sr, sr,
         specFreqs, specDb, envelopeNorm, freqs,
-        bands, resonances: resonances.slice(0, 8),
+        bands, directBands, directAvailable: !!directBands, resonances: resonances.slice(0, 8),
         envTime, envDb: envDbArr,
         fundamental, stereo, harshness,
         isStereo: buf.numberOfChannels >= 2,
-        fp, lufs, transients, pitchData, tilt, noise, clipping
+        fp, lufs, transients, pitchData, tilt, noise, clipping,
+        compModel, reverbModel, dynamicEqModel
     };
 }
 
 /* ============================================================
    COMPARE TWO TRACKS
    ============================================================ */
-function compare(ref, mine) {
-    const T_OK = 4, T_WARN = 7;
-    const procDiffers = ref.fp.level !== mine.fp.level;
-    const refWet = ref.fp.hasReverb, mineDry = mine.fp.isDry;
+function clampNum(v, lo, hi) {
+    return Math.max(lo, Math.min(hi, v));
+}
 
-    // Band comparison
-    const bandDiffs = ref.bands.map((r, i) => {
-        const m = mine.bands[i];
-        const diff = r.energy - m.energy;
-        const absDiff = Math.abs(diff);
-        const isProcBand = (r.name === 'Sub' || r.name === 'Bass' || r.name === 'Air');
-
-        let severity, advice;
-        if (absDiff < T_OK) {
-            severity = 'ok';
-            advice = `${r.name} — ок (${absDiff.toFixed(1)} дБ) ✅`;
-        } else if (absDiff >= 12) {
-            severity = diff > 0 ? 'boost' : 'cut';
-            advice = `${r.name}: ~${absDiff.toFixed(0)} дБ — разная обработка, не крути EQ тут.`;
-        } else if (isProcBand && procDiffers && absDiff >= T_OK) {
-            severity = diff > 0 ? 'boost' : 'cut';
-            advice = `${r.name}: ${absDiff.toFixed(0)} дБ — вероятно из-за разной обработки.`;
-        } else if (absDiff < T_WARN) {
-            severity = diff > 0 ? 'boost' : 'cut';
-            const plugin = r.lo >= 3000 ? 'EQ / де-эссер' : 'EQ';
-            advice = diff > 0
-                ? `${r.name}: не хватает ~${absDiff.toFixed(0)} дБ. ${plugin}: буст ${r.lo}–${r.hi} Гц.`
-                : `${r.name}: лишних ~${absDiff.toFixed(0)} дБ. ${plugin}: подрежь ${r.lo}–${r.hi} Гц.`;
-        } else {
-            severity = diff > 0 ? 'boost' : 'cut';
-            const plugin = r.lo >= 3000 ? 'EQ / де-эссер' : 'EQ / компрессор';
-            advice = diff > 0
-                ? `⚠️ ${r.name}: не хватает ~${absDiff.toFixed(0)} дБ. Проверь ${plugin} на ${r.lo}–${r.hi} Гц.`
-                : `⚠️ ${r.name}: перебор ~${absDiff.toFixed(0)} дБ. Проверь ${plugin} на ${r.lo}–${r.hi} Гц.`;
-        }
-        return { ...r, refE: r.energy, mineE: m.energy, diff, severity, advice };
-    });
-
-    // Dynamics
-    const crestDiff = mine.crest - ref.crest;
-    const dynDiff = mine.dynRange - ref.dynRange;
-
-    // --- ACTIONABLE COMPRESSION ADVICE ---
-    let compAdvice, compAction;
-    const atkMs = mine.transients ? mine.transients.compAttackMs : (mine.crest > 18 ? '3–5' : '8–15');
-    const relMs = mine.transients ? mine.transients.compReleaseMs : (mine.crest > 18 ? '40–60' : '80–120');
-    const ratioTxt = mine.crest > 18 ? '4:1' : mine.crest > 14 ? '3:1' : '2:1';
-
-    if (crestDiff < -6 && refWet && mineDry) {
-        compAdvice = `Реверб на рефе раздувает пики — твой сухой вокал звучит плотнее. Так и должно быть.`;
-        compAction = null;
-    } else if (crestDiff > 6 && mine.fp.hasReverb && ref.fp.isDry) {
-        compAdvice = `У тебя реверб раздувает пики — с компрессией всё ок.`;
-        compAction = null;
-    } else if (crestDiff > 6) {
-        compAdvice = `Вокал слишком дёрганый — пики на ${crestDiff.toFixed(1)} дБ острее рефа.`;
-        compAction = `Вешай быстрый компрессор. Attack: ${atkMs} мс, Release: ${relMs} мс, Ratio: ${ratioTxt}. Жми до −4 дБ Gain Reduction.`;
-    } else if (crestDiff < -6) {
-        compAdvice = `Вокал пережат на ${Math.abs(crestDiff).toFixed(1)} дБ.`;
-        compAction = `Расслабь компрессор: сделай атаку медленнее (>15 мс), подними threshold на 3–4 дБ.`;
-    } else {
-        compAdvice = `Компрессия в порядке — разница ${Math.abs(crestDiff).toFixed(1)} дБ ✓`;
-        compAction = null;
+function estimateHpfCutoff(track) {
+    if (!track || !track.specFreqs || !track.specDb || track.specFreqs.length < 20) {
+        return track && track.fundamental ? Math.round(clampNum(track.fundamental.freq * 0.6, 55, 180)) : 90;
     }
 
-    let dynAdvice;
-    if (dynDiff < -6 && refWet && mineDry)
-        dynAdvice = `Динамика рефа шире из-за хвостов реверба. Для сухого вокала — нормально.`;
-    else if (dynDiff > 6)
-        dynAdvice = `Динамика шире рефа на ${dynDiff.toFixed(1)} дБ — добавь компрессии или автоматизацию громкости.`;
-    else if (dynDiff < -6)
-        dynAdvice = `Перекомпрессия — динамика уже на ${Math.abs(dynDiff).toFixed(1)} дБ. Ослабь ratio или подними threshold.`;
-    else
-        dynAdvice = `Динамический диапазон ок ✓`;
+    let bodySum = 0;
+    let bodyCount = 0;
+    for (let i = 0; i < track.specFreqs.length; i++) {
+        const f = track.specFreqs[i];
+        if (f >= 180 && f <= 350) {
+            bodySum += track.specDb[i];
+            bodyCount++;
+        }
+    }
+    const bodyMean = bodyCount ? (bodySum / bodyCount) : -20;
 
-    // FIX 1.4: Score — only vocal bands, capped excess, skip dynamics if ref wet
-    let totalDeviation = 0, maxDeviation = 0;
+    let bestFreq = 0;
+    let bestRise = -999;
+    for (let i = 3; i < track.specFreqs.length - 3; i++) {
+        const f = track.specFreqs[i];
+        if (f < 45 || f > 180) continue;
+        const lo = track.specDb[Math.max(0, i - 2)];
+        const hi = track.specDb[Math.min(track.specDb.length - 1, i + 2)];
+        const rise = hi - lo;
+        const belowBody = track.specDb[i] < bodyMean - 5;
+        if (belowBody && rise > bestRise) {
+            bestRise = rise;
+            bestFreq = f;
+        }
+    }
+
+    if (bestFreq > 0) return Math.round(clampNum(bestFreq, 55, 180));
+    if (track.fundamental) return Math.round(clampNum(track.fundamental.freq * 0.6, 55, 180));
+    return 90;
+}
+
+function buildReverseRecipe(ref, mine, bandDiffs, context) {
+    const bandByName = {};
+    bandDiffs.forEach(b => { bandByName[b.name] = b; });
+
+    const pauseDb = Number.isFinite(ref.fp.avgPauseDb) ? ref.fp.avgPauseDb : ref.noise.noiseLevel;
+    const gateEnabled = pauseDb < -65;
+    const gateThresholdDb = Math.round(clampNum(pauseDb + 6, -70, -35));
+
+    const refHpfHz = estimateHpfCutoff(ref);
+    const mineBaseHpf = mine.fundamental
+        ? clampNum(mine.fundamental.freq * 0.6, 55, 180)
+        : estimateHpfCutoff(mine);
+    const hpfHz = Math.round(clampNum(refHpfHz * 0.65 + mineBaseHpf * 0.35, 55, 180));
+
+    const staticCuts = mine.resonances.slice(0, 3).map(r => ({
+        freqHz: r.freq,
+        cutDb: r.cutDb,
+        q: r.Q,
+        label: r.label
+    }));
+
+    const dynamicEq = mine.dynamicEqModel && mine.dynamicEqModel.proximityEffect
+        ? {
+            needed: true,
+            freqHz: mine.dynamicEqModel.proximityFreq,
+            deltaDb: mine.dynamicEqModel.proximityDeltaDb,
+            action: `Динамический EQ: приглушай ${mine.dynamicEqModel.proximityFreq} Hz на 2-4 dB только в тихих фразах.`
+        }
+        : { needed: false, freqHz: 0, deltaDb: 0, action: null };
+
+    const airNeed = ((bandByName.Air ? bandByName.Air.diff : 0) * 0.7) + (bandByName.Brilliance ? bandByName.Brilliance.diff : 0) > 4;
+
+    const refComp = ref.compModel || {};
+    const mineComp = mine.compModel || {};
+    const refDyn = Number.isFinite(refComp.dynamicRangeDb) ? refComp.dynamicRangeDb : ref.dynRange;
+    const mineDyn = Number.isFinite(mineComp.dynamicRangeDb) ? mineComp.dynamicRangeDb : mine.dynRange;
+
+    const compNeeded = !!refComp.detected || mineDyn > refDyn + 2;
+    const ratio = Math.round(clampNum(refComp.ratio || (mineDyn > 12 ? 3.5 : 2.5), 1.5, 6) * 10) / 10;
+    const attackMs = Math.round(clampNum(refComp.attackMs || (mine.transients ? mine.transients.compAttackMs : 8), 2, 30));
+    const releaseMs = Math.round(clampNum(refComp.releaseMs || (mine.transients ? mine.transients.compReleaseMs : 90), 30, 260));
+    const thresholdDb = Math.round(refComp.thresholdDb || -22);
+
+    const compAction = compNeeded
+        ? `Компрессор: Ratio ${ratio}:1, Attack ${attackMs} мс, Release ${releaseMs} мс, Threshold около ${thresholdDb} dB.`
+        : 'Компрессия уже близка к референсу, оставь мягкий контроль 1-2 dB GR.';
+
+    const hDiff = context.hDiff;
+    const clarityDiff = bandByName.Clarity ? bandByName.Clarity.diff : 0;
+    const deesserNeeded = (hDiff > 6 && clarityDiff < 2) || (mine.harshness.index > ref.harshness.index + 8);
+    const deesserFreqHz = ref.harshness.deesserFreq || mine.harshness.deesserFreq;
+    const deesserAmountDb = Math.round(clampNum((mine.harshness.index - ref.harshness.index) / 6 + 2, 1, 6));
+    const deesserAction = deesserNeeded
+        ? `De-Esser: ${deesserFreqHz} Hz, подавление ${deesserAmountDb} dB по "с/ш".`
+        : 'De-Esser можно оставить минимальным или выключить.';
+
+    const refRev = ref.reverbModel || {};
+    const mineRev = mine.reverbModel || {};
+    const reverbNeeded = !!(refRev.hasReverb || ref.fp.hasReverb);
+    const decayMs = reverbNeeded
+        ? Math.round(clampNum(refRev.rt60Ms || 350, 180, 2400))
+        : 0;
+    const type = reverbNeeded
+        ? ((refRev.type && refRev.type !== 'none') ? refRev.type : (decayMs > 700 ? 'hall' : 'plate'))
+        : 'none';
+    const preDelayMs = reverbNeeded ? (type === 'hall' ? 28 : type === 'plate' ? 18 : 10) : 0;
+    const mixPct = reverbNeeded ? (mine.fp.isDry ? 14 : 10) : 0;
+    const reverbAction = reverbNeeded
+        ? `Реверб: ${type}, decay ${decayMs} мс, pre-delay ${preDelayMs} мс, mix ${mixPct}%.`
+        : 'Реверб не обязателен — у референса сухая/плотная подача.';
+
+    const targetLufs = -14;
+    const refLufs = ref.lufs.lufsI;
+    const mineLufs = mine.lufs.lufsI;
+    const toTarget = Math.round((targetLufs - mineLufs) * 10) / 10;
+
+    const priorities = [];
+    if (staticCuts.length > 0) {
+        const cut = staticCuts[0];
+        priorities.push(`Подрежь ${cut.freqHz} Hz на ${-Math.abs(cut.cutDb)} dB (Q ${cut.q}).`);
+    }
+    if (dynamicEq.needed) priorities.push(dynamicEq.action);
+    if (compNeeded) priorities.push(compAction);
+    if (deesserNeeded && priorities.length < 3) priorities.push(deesserAction);
+    if (reverbNeeded && priorities.length < 3) priorities.push(`Добавь ${type} реверб с decay ${decayMs} мс.`);
+    if (gateEnabled && priorities.length < 3) priorities.push(`Поставь gate с threshold около ${gateThresholdDb} dBFS.`);
+    if (airNeed && priorities.length < 3) priorities.push('Добавь high-shelf на 10-12 kHz (+2..+4 dB).');
+
+    const chainLabel = `[Gate] → [HPF ${hpfHz}Hz] → [EQ] → [Comp ${ratio}:1] → [De-esser ${deesserFreqHz}Hz] → [Reverb ${reverbNeeded ? decayMs + 'ms' : 'off'}] → [Loudness]`;
+
+    return {
+        chainLabel,
+        gate: {
+            enabled: gateEnabled,
+            thresholdDb: gateThresholdDb,
+            pauseDb: Math.round(pauseDb),
+            action: gateEnabled
+                ? `Gate: threshold ${gateThresholdDb} dBFS, release 70-100 мс.`
+                : 'Gate не обязателен: паузы и так достаточно чистые.'
+        },
+        hpf: {
+            refHz: refHpfHz,
+            hz: hpfHz,
+            action: `HPF: поставь срез около ${hpfHz} Hz (ориентир по референсу ${refHpfHz} Hz).`
+        },
+        eq: {
+            staticCuts,
+            dynamicEq,
+            airNeed,
+            tiltAction: context.tiltAction || null
+        },
+        compressor: {
+            needed: compNeeded,
+            ratio,
+            attackMs,
+            releaseMs,
+            thresholdDb,
+            action: compAction
+        },
+        deesser: {
+            needed: deesserNeeded,
+            freqHz: deesserFreqHz,
+            amountDb: deesserAmountDb,
+            action: deesserAction
+        },
+        reverb: {
+            needed: reverbNeeded,
+            type,
+            decayMs,
+            preDelayMs,
+            mixPct,
+            mineTailMs: mineRev.tailMs || 0,
+            refTailMs: refRev.tailMs || 0,
+            action: reverbNeeded
+        ? `Реверб: ${type}, decay ${decayMs} мс, pre-delay ${preDelayMs} мс, mix ${mixPct}%.`
+                : 'Реверб не нужен для этого референса.'
+        },
+        loudness: {
+            targetLufs,
+            refLufs,
+            mineLufs,
+            toTarget
+        },
+        priorities: priorities.slice(0, 3)
+    };
+}
+
+function compare(ref, mine) {
+    const T_OK = 4;
+    const procDiffers = ref.fp.level !== mine.fp.level;
+    const wetDryMismatch = (ref.fp.hasReverb && mine.fp.isDry) || (mine.fp.hasReverb && ref.fp.isDry);
+    const stageMismatch = wetDryMismatch || procDiffers;
+
+    const bandDiffs = ref.bands.map((r, i) => {
+        const m = mine.bands[i];
+        const canUseDirect = stageMismatch && SCORE_BANDS.includes(r.name) && ref.directAvailable && mine.directAvailable;
+        const refCmp = canUseDirect ? ref.directBands[i].tone : r.tone;
+        const mineCmp = canUseDirect ? mine.directBands[i].tone : m.tone;
+        const diff = refCmp - mineCmp;
+        const absDiff = Math.abs(diff);
+        const severity = absDiff < T_OK ? 'ok' : (diff > 0 ? 'boost' : 'cut');
+
+        let advice = `${r.name}: близко к референсу.`;
+        if (absDiff >= T_OK) {
+            const gain = Math.min(absDiff, 6).toFixed(1);
+            advice = diff > 0
+                ? `Подними ${r.name} примерно на +${gain} dB.`
+                : `Опусти ${r.name} примерно на -${gain} dB.`;
+        }
+
+        return { ...r, refE: refCmp, mineE: mineCmp, diff, severity, advice, canUseDirect };
+    });
+
+    const crestDiff = mine.crest - ref.crest;
+    const dynDiff = mine.dynRange - ref.dynRange;
+    const compressionMismatch = ref.fp.hasCompression !== mine.fp.hasCompression;
+
+    let compAdvice = 'По компрессии всё близко к референсу.';
+    let compAction = null;
+    if (ref.fp.hasCompression && !mine.fp.hasCompression) {
+        compAdvice = 'Твой вокал звучит слишком сырой и неровный по динамике.';
+    } else if (!ref.fp.hasCompression && mine.fp.hasCompression) {
+        compAdvice = 'Компрессия у тебя сильнее, чем в референсе.';
+    } else if (crestDiff > 4 || dynDiff > 4) {
+        compAdvice = 'Вокал прыгает по громкости сильнее, чем у референса.';
+    } else if (crestDiff < -4 && !wetDryMismatch) {
+        compAdvice = 'Вокал слишком зажат по сравнению с референсом.';
+    }
+
+    let dynAdvice = 'Динамика в целом близка к референсу.';
+    if (wetDryMismatch) {
+        dynAdvice = 'Сравнение динамики частично искажено из-за разной стадии обработки (dry/wet).';
+    } else if (dynDiff > 5) {
+        dynAdvice = 'Диапазон громкости слишком широкий: лучше сильнее контролировать компрессором.';
+    } else if (dynDiff < -5) {
+        dynAdvice = 'Диапазон громкости слишком узкий: компрессия может быть пережата.';
+    }
+
+    let totalDeviation = 0;
+    let maxDeviation = 0;
     bandDiffs.forEach(b => {
         if (!SCORE_BANDS.includes(b.name)) return;
         const w = b.weight || 1;
@@ -393,7 +626,9 @@ function compare(ref, mine) {
         totalDeviation += capped * capped * w;
         maxDeviation += 144 * w;
     });
-    if (!ref.fp.hasReverb) {
+
+    const dynamicsComparable = ref.fp.hasReverb === mine.fp.hasReverb;
+    if (dynamicsComparable) {
         totalDeviation += Math.max(0, Math.abs(crestDiff) - 4) ** 2 * 0.5;
         totalDeviation += Math.max(0, Math.abs(dynDiff) - 4) ** 2 * 0.3;
         maxDeviation += 64 * 0.5 + 64 * 0.3;
@@ -401,57 +636,61 @@ function compare(ref, mine) {
     const rawScore = 1 - Math.sqrt(Math.min(1, totalDeviation / Math.max(maxDeviation, 1)));
     const score = Math.max(0, Math.min(100, Math.round(rawScore * 100)));
 
-    // Priorities
-    const pris = [];
-    const sorted = [...bandDiffs].sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff));
-    sorted.forEach(b => {
-        if (pris.length >= 3 || Math.abs(b.diff) < T_OK) return;
-        if (procDiffers && (b.name === 'Sub' || b.name === 'Bass' || b.name === 'Air') && Math.abs(b.diff) < 12) return;
-        pris.push(b.advice);
-    });
-    if (Math.abs(crestDiff) > 6 && !(refWet && mineDry)) pris.push(compAction || compAdvice);
-
-    // --- ACTIONABLE HARSHNESS / DE-ESSER ADVICE ---
     const hDiff = mine.harshness.index - ref.harshness.index;
-    let harshAdvice, deesserAction;
-    if (hDiff > 15) {
-        harshAdvice = `Эски стреляют сильнее рефа (индекс ${mine.harshness.index} vs ${ref.harshness.index}).`;
-        deesserAction = `Вешай De-Esser на ${mine.harshness.deesserFreq} Hz. Threshold: средний, чтобы убрать ~${Math.min(hDiff * 0.3, 6).toFixed(0)} дБ на сибилянтах.`;
-    } else if (hDiff > 8) {
-        harshAdvice = `Чуть ярче рефа (${mine.harshness.index} vs ${ref.harshness.index}).`;
-        deesserAction = `Лёгкий De-Esser на ${mine.harshness.deesserFreq} Hz — убери 2–3 дБ на пиках.`;
-    } else if (hDiff < -15) {
-        harshAdvice = `Тусклее рефа (${mine.harshness.index} vs ${ref.harshness.index}).`;
-        deesserAction = `Де-эссер слишком агрессивный — ослабь или убери. Добавь Air EQ буст на 10–12 кГц.`;
-    } else {
-        harshAdvice = `Яркость на уровне рефа ✓`;
-        deesserAction = null;
+    const tiltDiff = (ref.tilt && mine.tilt) ? (mine.tilt.slopeDbPerOct - ref.tilt.slopeDbPerOct) : 0;
+
+    let harshAdvice = 'Сибилянты близки к референсу.';
+    let deesserAction = null;
+    if (hDiff > 12) {
+        harshAdvice = 'Свистящие согласные звучат агрессивнее, чем в референсе.';
+        deesserAction = `Поставь De-Esser в зоне ${mine.harshness.deesserFreq} Hz, дави 2-4 dB по "с/ш".`;
+    } else if (hDiff > 7) {
+        harshAdvice = 'Есть лёгкий избыток сибилянтов.';
+        deesserAction = `Слегка подожми De-Esser около ${mine.harshness.deesserFreq} Hz (1-2 dB).`;
+    } else if (tiltDiff < -2) {
+        harshAdvice = 'Верхов не хватает. Проблема скорее в EQ, а не в де-эссере.';
     }
 
-    // --- ACTIONABLE TILT ADVICE ---
-    let tiltAdvice = '', tiltAction = null;
-    if (ref.tilt && mine.tilt) {
-        const tiltDiff = mine.tilt.slopeDbPerOct - ref.tilt.slopeDbPerOct;
-        if (tiltDiff < -2) {
-            tiltAdvice = `Спектр темнее рефа (${mine.tilt.character} vs ${ref.tilt.character}).`;
-            tiltAction = `Добавь воздуха: High-Shelf EQ на 10–12 кГц, буст +${Math.min(Math.abs(tiltDiff), 4).toFixed(0)}–${Math.min(Math.abs(tiltDiff) + 1, 6).toFixed(0)} дБ.`;
-        } else if (tiltDiff > 2) {
-            tiltAdvice = `Спектр ярче рефа (${mine.tilt.character} vs ${ref.tilt.character}).`;
-            tiltAction = `Убери лишний верх: High-Shelf EQ на 8–10 кГц, срез −${Math.min(tiltDiff, 4).toFixed(0)}–${Math.min(tiltDiff + 1, 6).toFixed(0)} дБ.`;
-        } else {
-            tiltAdvice = `Тональный баланс совпадает с рефом ✓`;
-        }
+    let tiltAdvice = 'Тональный баланс по верхам близок к референсу.';
+    let tiltAction = null;
+    if (tiltDiff < -2) {
+        tiltAdvice = 'Голос звучит тусклее референса.';
+        tiltAction = 'В EQ добавь high-shelf на 10-12 kHz примерно +2..+4 dB.';
+    } else if (tiltDiff > 2) {
+        tiltAdvice = 'Голос звучит ярче и жёстче референса.';
+        tiltAction = 'В EQ убери high-shelf на 8-10 kHz примерно -2..-4 dB.';
     }
 
-    // Duration warning
+    const reverseRecipe = buildReverseRecipe(ref, mine, bandDiffs, {
+        hDiff,
+        tiltDiff,
+        tiltAction
+    });
+
+    if (!compAction && reverseRecipe.compressor.needed) compAction = reverseRecipe.compressor.action;
+    if (!deesserAction && reverseRecipe.deesser.needed) deesserAction = reverseRecipe.deesser.action;
+
     let durationWarning = null;
     const ratio = ref.rawDuration / Math.max(mine.rawDuration, 0.1);
-    if (ratio > 2.5 || ratio < 0.4)
-        durationWarning = `Файлы разной длины (реф: ${ref.rawDuration.toFixed(0)}с, твой: ${mine.rawDuration.toFixed(0)}с). Для точности используй одинаковые фрагменты.`;
+    if (ratio > 2.5 || ratio < 0.4) {
+        durationWarning = `Файлы сильно различаются по длине (реф ${ref.rawDuration.toFixed(1)}s, твой ${mine.rawDuration.toFixed(1)}s). Сравнение может быть неточным.`;
+    }
 
     return {
-        bandDiffs, compAdvice, compAction, dynAdvice, score,
-        priorities: pris.slice(0, 4),
-        harshAdvice, deesserAction, tiltAdvice, tiltAction, durationWarning, procDiffers
+        bandDiffs,
+        compAdvice,
+        compAction,
+        dynAdvice,
+        score,
+        priorities: reverseRecipe.priorities,
+        harshAdvice,
+        deesserAction,
+        tiltAdvice,
+        tiltAction,
+        durationWarning,
+        procDiffers,
+        compressionMismatch,
+        stageMismatch,
+        reverseRecipe
     };
 }

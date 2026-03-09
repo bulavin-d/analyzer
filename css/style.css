@@ -1,5 +1,5 @@
-/* ============================================================
-   BULAVIN AI ANALYZER v2.1 — Deep Neon + Mixing Chain
+﻿/* ============================================================
+   BULAVIN AI ANALYZER v2.1 вЂ” Deep Neon + Mixing Chain
    Vertical drops, pulse divider, cyber-scanner, chain cards
    ============================================================ */
 
@@ -463,7 +463,7 @@ body {
 }
 
 .scan-progress {
-    /* NO separate grey box — just button + steps centered */
+    /* NO separate grey box вЂ” just button + steps centered */
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -531,6 +531,98 @@ body {
     }
 }
 
+body.state-upload #results,
+body.state-scanning #results {
+    display: none;
+}
+
+body.state-results #results {
+    display: block;
+}
+
+.results-layout {
+    display: grid;
+    grid-template-columns: 148px minmax(0, 1fr);
+    gap: 14px;
+    align-items: start;
+}
+
+.results-sidebar {
+    position: sticky;
+    top: 82px;
+    padding: 6px 0 6px 10px;
+    border-left: 1px solid var(--border-card);
+    background: transparent;
+}
+
+.sidebar-title {
+    font-size: 10px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 10px;
+}
+
+.sidebar-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.sidebar-link {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    text-decoration: none;
+    color: var(--text-muted);
+    font-size: 12px;
+    font-weight: 500;
+    border-left: 2px solid transparent;
+    padding: 7px 6px;
+    transition: all 0.2s ease;
+}
+
+.sidebar-link:hover {
+    color: var(--text-main);
+}
+
+.sidebar-link.active {
+    color: var(--accent-pink);
+    border-left-color: var(--accent-pink);
+}
+
+.sidebar-mark {
+    min-width: 14px;
+    color: var(--text-dim);
+    font-weight: 700;
+    text-align: center;
+}
+
+.sidebar-link.active .sidebar-mark {
+    color: var(--accent-pink);
+}
+
+.results-content {
+    min-width: 0;
+}
+
+.result-section {
+    scroll-margin-top: 94px;
+    margin-bottom: 14px;
+}
+
+.results-topbar {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 12px;
+}
+
+.rescan-btn-top {
+    width: auto;
+    min-width: 220px;
+    padding: 12px 16px;
+    border-radius: 12px;
+}
 /* === DASHBOARD GRID === */
 .dash-grid {
     display: grid;
@@ -1133,5 +1225,24 @@ body {
 
     .drops-vertical {
         max-width: 100%;
+    }
+
+    .rescan-btn-top {
+        width: 100%;
+        min-width: 0;
+    }
+}
+
+@media (max-width: 767px) {
+    .results-layout {
+        grid-template-columns: 1fr;
+    }
+
+    .results-sidebar {
+        display: none;
+    }
+
+    .result-section {
+        scroll-margin-top: 82px;
     }
 }

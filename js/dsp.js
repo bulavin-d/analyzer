@@ -1,4 +1,4 @@
-/* ============================================================
+﻿/* ============================================================
    BULAVIN AI ANALYZER v2.0 — DSP Core
    FFT, Welch PSD, Autocorrelation, LUFS, Transients, Pitch,
    Spectral Envelope, Noise Floor, Clipping Detection
@@ -141,9 +141,7 @@ function autocorrelate(data, sr, minFreq, maxFreq) {
     const maxLag = Math.floor(sr / minFreq);
     const N = data.length;
     if (N < maxLag * 2) return null;
-
-    let bestLag = minLag, bestCorr = -1;
-    for (let lag = minLag; lag <= Math.min(maxLag, N / 2); lag++) {
+    function corrAtLag(lag) {
         let sum = 0, normA = 0, normB = 0;
         const len = Math.min(N - lag, 2048);
         for (let i = 0; i < len; i++) {
@@ -151,45 +149,39 @@ function autocorrelate(data, sr, minFreq, maxFreq) {
             normA += data[i] * data[i];
             normB += data[i + lag] * data[i + lag];
         }
-        const corr = sum / (Math.sqrt(normA * normB) + 1e-10);
+        return sum / (Math.sqrt(normA * normB) + 1e-10);
+    }
+    let bestLag = minLag, bestCorr = -1;
+    for (let lag = minLag; lag <= Math.min(maxLag, N / 2); lag++) {
+        const corr = corrAtLag(lag);
         if (corr > bestCorr) { bestCorr = corr; bestLag = lag; }
     }
     if (bestCorr < 0.3) return null;
-
-    // OCTAVE CORRECTION: check subharmonic (lag × 2 = octave lower)
+    // Prefer octave-lower candidate if correlation is close and freq stays in vocal range.
     const doubleLag = bestLag * 2;
     if (doubleLag <= Math.min(maxLag, N / 2)) {
-        let sum2 = 0, normA2 = 0, normB2 = 0;
-        const len2 = Math.min(N - doubleLag, 2048);
-        for (let i = 0; i < len2; i++) {
-            sum2 += data[i] * data[i + doubleLag];
-            normA2 += data[i] * data[i];
-            normB2 += data[i + doubleLag] * data[i + doubleLag];
-        }
-        const corr2 = sum2 / (Math.sqrt(normA2 * normB2) + 1e-10);
+        const corr2 = corrAtLag(doubleLag);
         const freq2 = sr / doubleLag;
-        if (corr2 > bestCorr * 0.82 && freq2 >= 60 && freq2 <= 300) {
-            bestLag = doubleLag; bestCorr = corr2;
+        const voiceBand = freq2 >= 80 && freq2 <= 350;
+        const corrClose = corr2 >= bestCorr * (voiceBand ? 0.86 : 0.96);
+        if (corrClose && freq2 >= minFreq && freq2 <= maxFreq) {
+            bestLag = doubleLag;
+            bestCorr = corr2;
         }
     }
-
-    // Check lag / 2 (octave higher) for high voices
+    // Octave-up only with strong evidence to avoid jumping.
+    const freqNow = sr / bestLag;
     const halfLag = Math.floor(bestLag / 2);
     if (halfLag >= minLag) {
-        let sum3 = 0, normA3 = 0, normB3 = 0;
-        const len3 = Math.min(N - halfLag, 2048);
-        for (let i = 0; i < len3; i++) {
-            sum3 += data[i] * data[i + halfLag];
-            normA3 += data[i] * data[i];
-            normB3 += data[i + halfLag] * data[i + halfLag];
-        }
-        const corr3 = sum3 / (Math.sqrt(normA3 * normB3) + 1e-10);
+        const corr3 = corrAtLag(halfLag);
         const freq3 = sr / halfLag;
-        if (corr3 > bestCorr * 0.95 && freq3 >= 150 && freq3 <= 500) {
-            bestLag = halfLag; bestCorr = corr3;
+        const likelyOctaveError = freqNow < 140;
+        const strongEvidence = corr3 > bestCorr * (likelyOctaveError ? 1.02 : 1.10);
+        if (strongEvidence && freq3 >= 150 && freq3 <= maxFreq) {
+            bestLag = halfLag;
+            bestCorr = corr3;
         }
     }
-
     return { freq: sr / bestLag, confidence: bestCorr, lag: bestLag };
 }
 
@@ -454,6 +446,254 @@ function analyzeTransients(data, sr) {
     };
 }
 
+function percentileFromSorted(sorted, p) {
+    if (!sorted || sorted.length === 0) return 0;
+    const idx = Math.max(0, Math.min(sorted.length - 1, Math.floor(p * (sorted.length - 1))));
+    return sorted[idx];
+}
+
+function medianValue(values) {
+    if (!values || values.length === 0) return 0;
+    const sorted = [...values].sort((a, b) => a - b);
+    return sorted[Math.floor(sorted.length / 2)];
+}
+
+function frameDbTrack(data, sr, frameMs, hopMs) {
+    const frameSize = Math.max(8, Math.floor(sr * frameMs / 1000));
+    const hop = Math.max(4, Math.floor(sr * hopMs / 1000));
+    const db = [];
+    const starts = [];
+    for (let i = 0; i + frameSize <= data.length; i += hop) {
+        let s = 0;
+        for (let j = 0; j < frameSize; j++) s += data[i + j] * data[i + j];
+        db.push(10 * Math.log10(Math.max(s / frameSize, 1e-20)));
+        starts.push(i);
+    }
+    return { db, starts, frameSize, hop };
+}
+
+function estimateCompressorFromSignal(data, sr) {
+    const env = frameDbTrack(data, sr, 8, 4);
+    if (env.db.length < 20) {
+        return { detected: false, ratio: 2.0, attackMs: 8, releaseMs: 80, thresholdDb: -24, dynamicRangeDb: 12, confidence: 0 };
+    }
+
+    const sorted = [...env.db].sort((a, b) => a - b);
+    const noise = percentileFromSorted(sorted, 0.12);
+    const active = env.db.filter(v => v > noise + 8);
+    if (active.length < 20) {
+        return { detected: false, ratio: 2.0, attackMs: 8, releaseMs: 80, thresholdDb: -24, dynamicRangeDb: 14, confidence: 0.2 };
+    }
+
+    const activeSorted = [...active].sort((a, b) => a - b);
+    const p10 = percentileFromSorted(activeSorted, 0.10);
+    const p65 = percentileFromSorted(activeSorted, 0.65);
+    const p90 = percentileFromSorted(activeSorted, 0.90);
+    const dyn = Math.max(2, p90 - p10);
+
+    const ratio = Math.max(1.2, Math.min(6, 22 / dyn));
+    const thresholdDb = Math.round(p65);
+
+    const transient = analyzeTransients(data, sr);
+    const attackMs = transient ? Math.max(2, Math.min(30, transient.compAttackMs)) : 8;
+
+    const peaks = [];
+    for (let i = 2; i < env.db.length - 4; i++) {
+        if (env.db[i] > env.db[i - 1] + 3 && env.db[i] > env.db[i + 1] && env.db[i] > p65) {
+            peaks.push(i);
+        }
+    }
+
+    const releaseArr = [];
+    const targetFloor = percentileFromSorted(activeSorted, 0.35);
+    for (const idx of peaks.slice(0, 120)) {
+        const peakDb = env.db[idx];
+        const minTarget = Math.max(targetFloor, peakDb - 10);
+        const maxJ = Math.min(env.db.length - 1, idx + Math.round(0.35 * sr / env.hop));
+        for (let j = idx + 1; j <= maxJ; j++) {
+            if (env.db[j] <= minTarget) {
+                const relMs = (j - idx) * env.hop / sr * 1000;
+                if (relMs >= 12 && relMs <= 350) releaseArr.push(relMs);
+                break;
+            }
+        }
+    }
+
+    const releaseMs = Math.round(Math.max(25, Math.min(250, medianValue(releaseArr) || 90)));
+    const detected = dyn < 10.5 || ratio >= 2.3;
+    const confidence = Math.max(0.2, Math.min(0.95, active.length / 400 + (releaseArr.length > 6 ? 0.2 : 0)));
+
+    return {
+        detected,
+        ratio: Math.round(ratio * 10) / 10,
+        attackMs: Math.round(attackMs),
+        releaseMs,
+        thresholdDb,
+        dynamicRangeDb: Math.round(dyn * 10) / 10,
+        confidence: Math.round(confidence * 100) / 100
+    };
+}
+
+function estimateReverbRT60(data, sr) {
+    const env = frameDbTrack(data, sr, 10, 10);
+    if (env.db.length < 30) {
+        return { hasReverb: false, rt60Ms: 0, tailMs: 0, type: 'none', confidence: 0, tailsCount: 0 };
+    }
+
+    const sorted = [...env.db].sort((a, b) => a - b);
+    const p20 = percentileFromSorted(sorted, 0.20);
+    const p85 = percentileFromSorted(sorted, 0.85);
+    const voiceThresh = Math.max(-52, Math.min(-34, p85 - 12));
+    const noiseFloor = p20;
+
+    const ends = [];
+    for (let i = 2; i < env.db.length - 3; i++) {
+        if (env.db[i - 1] > voiceThresh && env.db[i] <= voiceThresh && env.db[i + 1] <= voiceThresh) ends.push(i);
+    }
+
+    const rt60Vals = [];
+    const tailVals = [];
+    const linearity = [];
+
+    for (const endIdx of ends.slice(0, 80)) {
+        const startIdx = endIdx + 1;
+        if (startIdx >= env.db.length - 5) continue;
+        const startDb = Math.max(env.db[endIdx], env.db[startIdx]);
+        const maxIdx = Math.min(env.db.length - 1, startIdx + Math.round(1.2 * sr / env.hop));
+        let t20Ms = 0;
+        let tailMs = 0;
+
+        for (let j = startIdx + 1; j <= maxIdx; j++) {
+            const drop = startDb - env.db[j];
+            if (!t20Ms && drop >= 20) t20Ms = (j - startIdx) * env.hop / sr * 1000;
+            if (env.db[j] <= noiseFloor + 3) {
+                tailMs = (j - startIdx) * env.hop / sr * 1000;
+                break;
+            }
+        }
+
+        if (!tailMs) tailMs = (maxIdx - startIdx) * env.hop / sr * 1000;
+        if (tailMs >= 30) tailVals.push(tailMs);
+        if (t20Ms >= 25) rt60Vals.push(Math.min(4000, t20Ms * 3));
+
+        const fitEnd = Math.min(maxIdx, startIdx + Math.round(0.35 * sr / env.hop));
+        const xs = [], ys = [];
+        for (let j = startIdx; j <= fitEnd; j++) {
+            xs.push((j - startIdx) * env.hop / sr);
+            ys.push(env.db[j]);
+        }
+        if (xs.length >= 6) {
+            const n = xs.length;
+            const sumX = xs.reduce((a, b) => a + b, 0);
+            const sumY = ys.reduce((a, b) => a + b, 0);
+            const sumXY = xs.reduce((s, x, i) => s + x * ys[i], 0);
+            const sumXX = xs.reduce((s, x) => s + x * x, 0);
+            const slope = (n * sumXY - sumX * sumY) / Math.max(1e-9, (n * sumXX - sumX * sumX));
+            const intercept = (sumY - slope * sumX) / n;
+            let ssRes = 0, ssTot = 0;
+            const meanY = sumY / n;
+            for (let i = 0; i < n; i++) {
+                const pred = slope * xs[i] + intercept;
+                ssRes += (ys[i] - pred) ** 2;
+                ssTot += (ys[i] - meanY) ** 2;
+            }
+            const r2 = ssTot > 1e-9 ? (1 - ssRes / ssTot) : 0;
+            linearity.push(Math.max(0, Math.min(1, r2)));
+        }
+    }
+
+    const rt60Ms = Math.round(medianValue(rt60Vals));
+    const tailMs = Math.round(medianValue(tailVals));
+    const lin = medianValue(linearity);
+    const hasReverb = rt60Ms >= 220 || tailMs >= 180;
+
+    let type = 'none';
+    if (hasReverb) {
+        if (lin > 0.9) type = rt60Ms > 650 ? 'hall' : 'plate';
+        else type = 'room';
+    }
+
+    const confidence = Math.max(0.2, Math.min(0.95, (rt60Vals.length / 12) + (linearity.length / 20)));
+
+    return {
+        hasReverb,
+        rt60Ms: hasReverb ? rt60Ms : 0,
+        tailMs,
+        type,
+        confidence: Math.round(confidence * 100) / 100,
+        tailsCount: rt60Vals.length
+    };
+}
+
+function dynamicEqByLoudness(data, sr, nfft) {
+    nfft = nfft || 2048;
+    const env = frameDbTrack(data, sr, 30, 15);
+    if (env.db.length < 24) {
+        return { proximityEffect: false, proximityFreq: 0, proximityDeltaDb: 0, dynamicRecommended: false, groupCounts: { quiet: 0, mid: 0, loud: 0 } };
+    }
+
+    const sortedDb = [...env.db].sort((a, b) => a - b);
+    const t1 = percentileFromSorted(sortedDb, 0.33);
+    const t2 = percentileFromSorted(sortedDb, 0.66);
+    const quietStarts = [];
+    const midStarts = [];
+    const loudStarts = [];
+
+    for (let i = 0; i < env.db.length; i++) {
+        const db = env.db[i];
+        if (db <= t1) quietStarts.push(env.starts[i]);
+        else if (db <= t2) midStarts.push(env.starts[i]);
+        else loudStarts.push(env.starts[i]);
+    }
+
+    const win = hann(nfft);
+    const nBins = nfft / 2 + 1;
+
+    function avgSpec(starts) {
+        const out = new Float64Array(nBins);
+        if (!starts.length) return out;
+        let count = 0;
+        for (const start of starts) {
+            if (start + nfft > data.length) continue;
+            const re = new Float64Array(nfft);
+            const im = new Float64Array(nfft);
+            for (let i = 0; i < nfft; i++) re[i] = data[start + i] * win[i];
+            fft(re, im);
+            for (let i = 0; i < nBins; i++) out[i] += re[i] * re[i] + im[i] * im[i];
+            count++;
+            if (count >= 120) break;
+        }
+        if (count === 0) return out;
+        for (let i = 0; i < nBins; i++) out[i] = 10 * Math.log10(Math.max(out[i] / count, 1e-20));
+        return out;
+    }
+
+    const quietSpec = avgSpec(quietStarts);
+    const loudSpec = avgSpec(loudStarts);
+
+    let bestFreq = 0;
+    let bestDiff = -100;
+    for (let i = 1; i < nBins; i++) {
+        const f = i * sr / nfft;
+        if (f < 120 || f > 500) continue;
+        const diff = quietSpec[i] - loudSpec[i];
+        if (diff > bestDiff) {
+            bestDiff = diff;
+            bestFreq = f;
+        }
+    }
+
+    const proximityEffect = bestDiff > 3;
+    const dynamicRecommended = proximityEffect;
+
+    return {
+        proximityEffect,
+        proximityFreq: Math.round(bestFreq),
+        proximityDeltaDb: Math.round(bestDiff * 10) / 10,
+        dynamicRecommended,
+        groupCounts: { quiet: quietStarts.length, mid: midStarts.length, loud: loudStarts.length }
+    };
+}
 // --- Pitch Stability ---
 function pitchTrack(data, sr) {
     const frameSize = Math.floor(sr * 0.04);
@@ -550,3 +790,5 @@ function detectClipping(data) {
                 : 'Клиппинга нет ✅'
     };
 }
+
+
