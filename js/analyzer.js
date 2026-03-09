@@ -350,27 +350,38 @@ function compare(ref, mine) {
     const crestDiff = mine.crest - ref.crest;
     const dynDiff = mine.dynRange - ref.dynRange;
 
-    let compAdvice;
-    if (crestDiff < -6 && refWet && mineDry)
-        compAdvice = `Crest ниже на ${Math.abs(crestDiff).toFixed(1)} дБ — реверб на рефе раздувает пики. Твой сухой ок. 👍`;
-    else if (crestDiff > 6 && mine.fp.hasReverb && ref.fp.isDry)
-        compAdvice = `Crest выше на ${crestDiff.toFixed(1)} дБ — у тебя реверб, нормально.`;
-    else if (crestDiff > 6)
-        compAdvice = `Пики острее рефа на ${crestDiff.toFixed(1)} дБ. Компрессор: ускорь attack / опусти threshold.`;
-    else if (crestDiff < -6)
-        compAdvice = `Пережат на ${Math.abs(crestDiff).toFixed(1)} дБ. Компрессор: замедли attack / подними threshold.`;
-    else
-        compAdvice = `Компрессия ок — разница ${Math.abs(crestDiff).toFixed(1)} дБ 👍`;
+    // --- ACTIONABLE COMPRESSION ADVICE ---
+    let compAdvice, compAction;
+    const atkMs = mine.transients ? mine.transients.compAttackMs : (mine.crest > 18 ? '3–5' : '8–15');
+    const relMs = mine.transients ? mine.transients.compReleaseMs : (mine.crest > 18 ? '40–60' : '80–120');
+    const ratioTxt = mine.crest > 18 ? '4:1' : mine.crest > 14 ? '3:1' : '2:1';
+
+    if (crestDiff < -6 && refWet && mineDry) {
+        compAdvice = `Реверб на рефе раздувает пики — твой сухой вокал звучит плотнее. Так и должно быть.`;
+        compAction = null;
+    } else if (crestDiff > 6 && mine.fp.hasReverb && ref.fp.isDry) {
+        compAdvice = `У тебя реверб раздувает пики — с компрессией всё ок.`;
+        compAction = null;
+    } else if (crestDiff > 6) {
+        compAdvice = `Вокал слишком дёрганый — пики на ${crestDiff.toFixed(1)} дБ острее рефа.`;
+        compAction = `Вешай быстрый компрессор. Attack: ${atkMs} мс, Release: ${relMs} мс, Ratio: ${ratioTxt}. Жми до −4 дБ Gain Reduction.`;
+    } else if (crestDiff < -6) {
+        compAdvice = `Вокал пережат на ${Math.abs(crestDiff).toFixed(1)} дБ.`;
+        compAction = `Расслабь компрессор: сделай атаку медленнее (>15 мс), подними threshold на 3–4 дБ.`;
+    } else {
+        compAdvice = `Компрессия в порядке — разница ${Math.abs(crestDiff).toFixed(1)} дБ ✓`;
+        compAction = null;
+    }
 
     let dynAdvice;
     if (dynDiff < -6 && refWet && mineDry)
-        dynAdvice = `Динамика рефа шире на ${Math.abs(dynDiff).toFixed(1)} дБ — хвосты реверба. Для сухого нормально. 👍`;
+        dynAdvice = `Динамика рефа шире из-за хвостов реверба. Для сухого вокала — нормально.`;
     else if (dynDiff > 6)
-        dynAdvice = `Динамика шире рефа на ${dynDiff.toFixed(1)} дБ. Добавь компрессии.`;
+        dynAdvice = `Динамика шире рефа на ${dynDiff.toFixed(1)} дБ — добавь компрессии или автоматизацию громкости.`;
     else if (dynDiff < -6)
-        dynAdvice = `Динамика уже на ${Math.abs(dynDiff).toFixed(1)} дБ. Возможно перекомпрессия.`;
+        dynAdvice = `Перекомпрессия — динамика уже на ${Math.abs(dynDiff).toFixed(1)} дБ. Ослабь ratio или подними threshold.`;
     else
-        dynAdvice = `Динамический диапазон ок — ${Math.abs(dynDiff).toFixed(1)} дБ 👍`;
+        dynAdvice = `Динамический диапазон ок ✓`;
 
     // FIX 1.4: Score — only vocal bands, capped excess, skip dynamics if ref wet
     let totalDeviation = 0, maxDeviation = 0;
@@ -398,25 +409,37 @@ function compare(ref, mine) {
         if (procDiffers && (b.name === 'Sub' || b.name === 'Bass' || b.name === 'Air') && Math.abs(b.diff) < 12) return;
         pris.push(b.advice);
     });
-    if (Math.abs(crestDiff) > 6 && !(refWet && mineDry)) pris.push(compAdvice);
+    if (Math.abs(crestDiff) > 6 && !(refWet && mineDry)) pris.push(compAction || compAdvice);
 
-    // Harshness
+    // --- ACTIONABLE HARSHNESS / DE-ESSER ADVICE ---
     const hDiff = mine.harshness.index - ref.harshness.index;
-    let harshAdvice;
-    if (hDiff > 15) harshAdvice = `Ярче рефа (${mine.harshness.index} vs ${ref.harshness.index}). Проверь де-эссер 4–10 кГц.`;
-    else if (hDiff < -15) harshAdvice = `Тусклее рефа (${mine.harshness.index} vs ${ref.harshness.index}). Де-эссер слишком агрессивный?`;
-    else harshAdvice = `Яркость на уровне рефа 👍`;
+    let harshAdvice, deesserAction;
+    if (hDiff > 15) {
+        harshAdvice = `Эски стреляют сильнее рефа (индекс ${mine.harshness.index} vs ${ref.harshness.index}).`;
+        deesserAction = `Вешай De-Esser на ${mine.harshness.deesserFreq} Hz. Threshold: средний, чтобы убрать ~${Math.min(hDiff * 0.3, 6).toFixed(0)} дБ на сибилянтах.`;
+    } else if (hDiff > 8) {
+        harshAdvice = `Чуть ярче рефа (${mine.harshness.index} vs ${ref.harshness.index}).`;
+        deesserAction = `Лёгкий De-Esser на ${mine.harshness.deesserFreq} Hz — убери 2–3 дБ на пиках.`;
+    } else if (hDiff < -15) {
+        harshAdvice = `Тусклее рефа (${mine.harshness.index} vs ${ref.harshness.index}).`;
+        deesserAction = `Де-эссер слишком агрессивный — ослабь или убери. Добавь Air EQ буст на 10–12 кГц.`;
+    } else {
+        harshAdvice = `Яркость на уровне рефа ✓`;
+        deesserAction = null;
+    }
 
-    // Tilt comparison
-    let tiltAdvice = '';
+    // --- ACTIONABLE TILT ADVICE ---
+    let tiltAdvice = '', tiltAction = null;
     if (ref.tilt && mine.tilt) {
         const tiltDiff = mine.tilt.slopeDbPerOct - ref.tilt.slopeDbPerOct;
         if (tiltDiff < -2) {
-            tiltAdvice = `Твой вокал звучит темнее рефа (${mine.tilt.character} vs ${ref.tilt.character}). Попробуй добавить воздуха: High-Shelf на 10–12 кГц, небольшой буст.`;
+            tiltAdvice = `Спектр темнее рефа (${mine.tilt.character} vs ${ref.tilt.character}).`;
+            tiltAction = `Добавь воздуха: High-Shelf EQ на 10–12 кГц, буст +${Math.min(Math.abs(tiltDiff), 4).toFixed(0)}–${Math.min(Math.abs(tiltDiff) + 1, 6).toFixed(0)} дБ.`;
         } else if (tiltDiff > 2) {
-            tiltAdvice = `Твой вокал ярче рефа (${mine.tilt.character} vs ${ref.tilt.character}). Попробуй убрать лишний верх: High-Shelf на 8–10 кГц, небольшой срез.`;
+            tiltAdvice = `Спектр ярче рефа (${mine.tilt.character} vs ${ref.tilt.character}).`;
+            tiltAction = `Убери лишний верх: High-Shelf EQ на 8–10 кГц, срез −${Math.min(tiltDiff, 4).toFixed(0)}–${Math.min(tiltDiff + 1, 6).toFixed(0)} дБ.`;
         } else {
-            tiltAdvice = `Тональный баланс близок к рефу 👍`;
+            tiltAdvice = `Тональный баланс совпадает с рефом ✓`;
         }
     }
 
@@ -424,11 +447,11 @@ function compare(ref, mine) {
     let durationWarning = null;
     const ratio = ref.rawDuration / Math.max(mine.rawDuration, 0.1);
     if (ratio > 2.5 || ratio < 0.4)
-        durationWarning = `Файлы разной длины (реф: ${ref.rawDuration.toFixed(0)}с, твой: ${mine.rawDuration.toFixed(0)}с). Для точности используй похожие фрагменты.`;
+        durationWarning = `Файлы разной длины (реф: ${ref.rawDuration.toFixed(0)}с, твой: ${mine.rawDuration.toFixed(0)}с). Для точности используй одинаковые фрагменты.`;
 
     return {
-        bandDiffs, compAdvice, dynAdvice, score,
+        bandDiffs, compAdvice, compAction, dynAdvice, score,
         priorities: pris.slice(0, 4),
-        harshAdvice, tiltAdvice, durationWarning, procDiffers
+        harshAdvice, deesserAction, tiltAdvice, tiltAction, durationWarning, procDiffers
     };
 }
